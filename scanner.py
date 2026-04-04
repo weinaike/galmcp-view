@@ -21,10 +21,15 @@ def parse_summary(md_text):
         result['chi_squared_nu'] = float(chi_match.group(1))
 
     # Extract components from "## Fit log Content" section
-    # Format:
-    #   Line 1 (values):  sersic    : (  201.44,   200.55)   24.31      2.46    5.16    0.66    56.06
-    #   Line 2 (errors):             (     0.04,     0.04)    0.09      0.36    2.75    0.32    16.68
-    #   sky           : [200.50, 200.50]  4.81e-05  [0.00e+00]  [0.00e+00]
+    # Component types and their parameter columns (after x, y position):
+    #   Full (7-param): sersic, expdisk, devauc, gaussian, king
+    #     Line 1:  sersic : (x, y)  mag  Re  n  b/a  PA
+    #     Line 2:          (dx,dy)  dm   dRe dn db/a dPA
+    #   PSF (3-param): psf
+    #     Line 1:  psf : (x, y)  mag
+    #     Line 2:        (dx,dy) dm
+    #   sky (different format, skipped):
+    #     sky : [x, y]  value  [dx]  [dy]
     fitlog_match = re.search(
         r'## Fit log Content\n(.*?)(?:\n---|\Z)',
         md_text, re.DOTALL
@@ -33,46 +38,91 @@ def parse_summary(md_text):
         log_text = fitlog_match.group(1)
         lines = log_text.split('\n')
 
+        def _parse_val(s):
+            """Parse a numeric value, stripping *, [], etc."""
+            return float(s.replace('*', '').replace('[', '').replace(']', ''))
+
+        # Regex to match the value line for full 7-param components
+        re_full = re.compile(
+            r'(sersic|expdisk|devauc|gaussian|king)\s*:\s*'
+            r'\(\s*([\d.eE*+\-]+),\s*([\d.eE*+\-]+)\)\s+'
+            r'([\d.eE*+\-]+)\s+([\d.eE*+\-]+)\s+'
+            r'([\d.eE*\[\]]+)\s+([\d.eE*+\-]+)\s+([\d.eE*+\-]+)'
+        )
+        # Regex to match the error line for full 7-param components
+        re_full_err = re.compile(
+            r'\(\s*([\d.eE*+\-]+),\s*([\d.eE*+\-]+)\)\s+'
+            r'([\d.eE*+\-]+)\s+([\d.eE*+\-]+)\s+'
+            r'([\d.eE*\[\]]+)\s+([\d.eE*+\-]+)\s+([\d.eE*+\-]+)'
+        )
+        # Regex to match the value line for psf (3-param)
+        re_psf = re.compile(
+            r'(psf)\s*:\s*'
+            r'\(\s*([\d.eE*+\-]+),\s*([\d.eE*+\-]+)\)\s+'
+            r'([\d.eE*+\-]+)\s*$'
+        )
+        # Regex to match the error line for psf (3-param)
+        re_psf_err = re.compile(
+            r'\(\s*([\d.eE*+\-]+),\s*([\d.eE*+\-]+)\)\s+'
+            r'([\d.eE*+\-]+)\s*$'
+        )
+
         i = 0
         while i < len(lines):
             line = lines[i].strip()
-            m = re.match(
-                r'(sersic|expdisk|devauc|gaussian|king)\s*:\s*'
-                r'\(\s*([\d.eE*+\-]+),\s*([\d.eE*+\-]+)\)\s+'
-                r'([\d.eE*+\-]+)\s+([\d.eE*+\-]+)\s+'
-                r'([\d.eE*\[\]]+)\s+([\d.eE*+\-]+)\s+([\d.eE*+\-]+)',
-                line
-            )
+
+            # Try full 7-param components first
+            m = re_full.match(line)
             if m:
                 comp = {
                     'type': m.group(1),
-                    'x': float(m.group(2).replace('*', '')),
-                    'y': float(m.group(3).replace('*', '')),
-                    'mag': float(m.group(4).replace('*', '')),
-                    're': float(m.group(5).replace('*', '')),
-                    'n': float(m.group(6).replace('*', '').replace('[', '').replace(']', '')),
-                    'ba': float(m.group(7).replace('*', '')),
-                    'pa': float(m.group(8).replace('*', '')),
+                    'x': _parse_val(m.group(2)),
+                    'y': _parse_val(m.group(3)),
+                    'mag': _parse_val(m.group(4)),
+                    're': _parse_val(m.group(5)),
+                    'n': _parse_val(m.group(6)),
+                    'ba': _parse_val(m.group(7)),
+                    'pa': _parse_val(m.group(8)),
                 }
                 # Try to parse the next line as error/uncertainty values
                 if i + 1 < len(lines):
                     err_line = lines[i + 1].strip()
-                    err_m = re.match(
-                        r'\(\s*([\d.eE*+\-]+),\s*([\d.eE*+\-]+)\)\s+'
-                        r'([\d.eE*+\-]+)\s+([\d.eE*+\-]+)\s+'
-                        r'([\d.eE*\[\]]+)\s+([\d.eE*+\-]+)\s+([\d.eE*+\-]+)',
-                        err_line
-                    )
+                    err_m = re_full_err.match(err_line)
                     if err_m:
-                        comp['x_err'] = float(err_m.group(1).replace('*', ''))
-                        comp['y_err'] = float(err_m.group(2).replace('*', ''))
-                        comp['mag_err'] = float(err_m.group(3).replace('*', ''))
-                        comp['re_err'] = float(err_m.group(4).replace('*', ''))
-                        comp['n_err'] = float(err_m.group(5).replace('*', '').replace('[', '').replace(']', ''))
-                        comp['ba_err'] = float(err_m.group(6).replace('*', ''))
-                        comp['pa_err'] = float(err_m.group(7).replace('*', ''))
+                        comp['x_err'] = _parse_val(err_m.group(1))
+                        comp['y_err'] = _parse_val(err_m.group(2))
+                        comp['mag_err'] = _parse_val(err_m.group(3))
+                        comp['re_err'] = _parse_val(err_m.group(4))
+                        comp['n_err'] = _parse_val(err_m.group(5))
+                        comp['ba_err'] = _parse_val(err_m.group(6))
+                        comp['pa_err'] = _parse_val(err_m.group(7))
                         i += 1  # skip error line
                 result['components'].append(comp)
+                i += 1
+                continue
+
+            # Try psf (3-param) components
+            m = re_psf.match(line)
+            if m:
+                comp = {
+                    'type': m.group(1),
+                    'x': _parse_val(m.group(2)),
+                    'y': _parse_val(m.group(3)),
+                    'mag': _parse_val(m.group(4)),
+                }
+                # Try to parse the next line as error/uncertainty values
+                if i + 1 < len(lines):
+                    err_line = lines[i + 1].strip()
+                    err_m = re_psf_err.match(err_line)
+                    if err_m:
+                        comp['x_err'] = _parse_val(err_m.group(1))
+                        comp['y_err'] = _parse_val(err_m.group(2))
+                        comp['mag_err'] = _parse_val(err_m.group(3))
+                        i += 1  # skip error line
+                result['components'].append(comp)
+                i += 1
+                continue
+
             i += 1
 
     return result

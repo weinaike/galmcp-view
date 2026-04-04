@@ -48,7 +48,7 @@
                             <tr><th>参数</th><th>含义</th><th>说明</th></tr>
                         </thead>
                         <tbody>
-                            <tr><td><strong>类型</strong></td><td>成分模型</td><td>sersic = S&eacute;rsic profile（通用星系轮廓）；expdisk = 指数盘；devauc = de Vaucouleurs profile（椭圆星系）；gaussian = 高斯成分；king = King profile</td></tr>
+                            <tr><td><strong>类型</strong></td><td>成分模型</td><td>sersic = S&eacute;rsic profile（通用星系轮廓）；expdisk = 指数盘；devauc = de Vaucouleurs profile（椭圆星系）；gaussian = 高斯成分；king = King profile；psf = 点扩散函数（点源/恒星）</td></tr>
                             <tr><td><strong>mag</strong></td><td>积分星等</td><td>该成分的总亮度（视星等），数值越小越亮</td></tr>
                             <tr><td><strong>R<sub>e</sub></strong></td><td>有效半径</td><td>包含该成分一半光通量的半径，单位为像素（pix），反映成分的大小</td></tr>
                             <tr><td><strong>n</strong></td><td>S&eacute;rsic 指数</td><td>控制轮廓的集中程度：n≈1 为盘状（指数盘）；n≈4 为椭圆星系（de Vaucouleurs）；n 越大中心越集中</td></tr>
@@ -75,28 +75,36 @@
                     </thead>
                     <tbody>
                         {% for c in r.components %}
-                        <tr>
+                        <tr class="comp-row-{{ c.type }}">
                             <td>{{ loop.index }}</td>
-                            <td>{{ c.type }}</td>
+                            <td><span class="comp-type-{{ c.type }}">{{ c.type }}</span></td>
                             <td>
                                 {{ '%.2f' | format(c.mag) }}
                                 {% if c.mag_err is defined %}<span class="err-val">&plusmn;{{ '%.2f' | format(c.mag_err) }}</span>{% endif %}
                             </td>
                             <td>
+                                {% if c.re is defined %}
                                 {{ '%.2f' | format(c.re) }}
                                 {% if c.re_err is defined %}<span class="err-val">&plusmn;{{ '%.2f' | format(c.re_err) }}</span>{% endif %}
+                                {% else %}<span class="na-cell">&mdash;</span>{% endif %}
                             </td>
                             <td>
+                                {% if c.n is defined %}
                                 {{ '%.2f' | format(c.n) }}
                                 {% if c.n_err is defined %}<span class="err-val">&plusmn;{{ '%.2f' | format(c.n_err) }}</span>{% endif %}
+                                {% else %}<span class="na-cell">&mdash;</span>{% endif %}
                             </td>
                             <td>
+                                {% if c.ba is defined %}
                                 {{ '%.2f' | format(c.ba) }}
                                 {% if c.ba_err is defined %}<span class="err-val">&plusmn;{{ '%.2f' | format(c.ba_err) }}</span>{% endif %}
+                                {% else %}<span class="na-cell">&mdash;</span>{% endif %}
                             </td>
                             <td>
+                                {% if c.pa is defined %}
                                 {{ '%.1f' | format(c.pa) }}
                                 {% if c.pa_err is defined %}<span class="err-val">&plusmn;{{ '%.1f' | format(c.pa_err) }}</span>{% endif %}
+                                {% else %}<span class="na-cell">&mdash;</span>{% endif %}
                             </td>
                             <td>
                                 {{ '%.1f' | format(c.x) }}
