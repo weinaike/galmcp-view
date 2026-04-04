@@ -1,5 +1,15 @@
 /* === Galaxy Fitting Label Tool - Client-side JS === */
 
+// Toggle parameter help box
+function toggleParamHelp(btn) {
+    var helpBox = btn.closest('.components-section').querySelector('.param-help-box');
+    if (helpBox) {
+        var isHidden = helpBox.style.display === 'none';
+        helpBox.style.display = isHidden ? 'block' : 'none';
+        btn.textContent = isHidden ? '\u2715 关闭说明' : '\u2139 参数说明';
+    }
+}
+
 // Toggle form sections based on accept/reject selection
 function onPerfectChange() {
     var isYes = document.getElementById('perfect-yes').checked;

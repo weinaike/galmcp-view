@@ -308,10 +308,53 @@ nav {
 .components-section {
     margin-top: 8px;
 }
+.section-header-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+}
 .components-section h4 {
     font-size: 0.9rem;
     color: var(--text-muted);
-    margin-bottom: 8px;
+    margin: 0;
+}
+.param-help-toggle {
+    font-size: 0.78rem;
+    padding: 2px 10px;
+}
+.param-help-box {
+    margin-bottom: 12px;
+    padding: 12px 16px;
+    background: rgba(88, 166, 255, 0.06);
+    border: 1px solid rgba(88, 166, 255, 0.2);
+    border-radius: var(--radius);
+}
+.param-help-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+}
+.param-help-table th, .param-help-table td {
+    padding: 5px 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+}
+.param-help-table th {
+    color: var(--text-muted);
+    font-weight: 500;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.param-help-table td:first-child {
+    white-space: nowrap;
+    color: var(--accent);
+    width: 90px;
+}
+.param-help-table td:nth-child(2) {
+    white-space: nowrap;
+    width: 110px;
 }
 .comp-table {
     width: 100%;
@@ -333,8 +376,22 @@ nav {
     color: var(--text-muted);
     font-weight: 500;
 }
+.th-hint {
+    display: block;
+    font-size: 0.7rem;
+    font-weight: 400;
+    color: #546170;
+    line-height: 1.2;
+}
 .comp-table td {
     font-family: monospace;
+}
+.err-val {
+    display: block;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    opacity: 0.7;
+    line-height: 1.2;
 }
 
 /* === Vote Section === */

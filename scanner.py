@@ -22,23 +22,25 @@ def parse_summary(md_text):
 
     # Extract components from "## Fit log Content" section
     # Format:
-    #   sersic    : (  201.44,   200.55)   24.31      2.46    5.16    0.66    56.06
-    #   sky       : [200.50, 200.50]  4.81e-05  [0.00e+00]  [0.00e+00]
+    #   Line 1 (values):  sersic    : (  201.44,   200.55)   24.31      2.46    5.16    0.66    56.06
+    #   Line 2 (errors):             (     0.04,     0.04)    0.09      0.36    2.75    0.32    16.68
+    #   sky           : [200.50, 200.50]  4.81e-05  [0.00e+00]  [0.00e+00]
     fitlog_match = re.search(
         r'## Fit log Content\n(.*?)(?:\n---|\Z)',
         md_text, re.DOTALL
     )
     if fitlog_match:
         log_text = fitlog_match.group(1)
+        lines = log_text.split('\n')
 
-        # Match sersic lines: type : (x, y) mag re n ba pa
-        for line in log_text.split('\n'):
-            line = line.strip()
+        i = 0
+        while i < len(lines):
+            line = lines[i].strip()
             m = re.match(
                 r'(sersic|expdisk|devauc|gaussian|king)\s*:\s*'
-                r'\(\s*([\d.*]+),\s*([\d.*]+)\)\s+'
-                r'([\d.*]+)\s+([\d.*]+)\s+'
-                r'([\d.*\[\]]+)\s+([\d.*]+)\s+([\d.*]+)',
+                r'\(\s*([\d.eE*+\-]+),\s*([\d.eE*+\-]+)\)\s+'
+                r'([\d.eE*+\-]+)\s+([\d.eE*+\-]+)\s+'
+                r'([\d.eE*\[\]]+)\s+([\d.eE*+\-]+)\s+([\d.eE*+\-]+)',
                 line
             )
             if m:
@@ -52,7 +54,26 @@ def parse_summary(md_text):
                     'ba': float(m.group(7).replace('*', '')),
                     'pa': float(m.group(8).replace('*', '')),
                 }
+                # Try to parse the next line as error/uncertainty values
+                if i + 1 < len(lines):
+                    err_line = lines[i + 1].strip()
+                    err_m = re.match(
+                        r'\(\s*([\d.eE*+\-]+),\s*([\d.eE*+\-]+)\)\s+'
+                        r'([\d.eE*+\-]+)\s+([\d.eE*+\-]+)\s+'
+                        r'([\d.eE*\[\]]+)\s+([\d.eE*+\-]+)\s+([\d.eE*+\-]+)',
+                        err_line
+                    )
+                    if err_m:
+                        comp['x_err'] = float(err_m.group(1).replace('*', ''))
+                        comp['y_err'] = float(err_m.group(2).replace('*', ''))
+                        comp['mag_err'] = float(err_m.group(3).replace('*', ''))
+                        comp['re_err'] = float(err_m.group(4).replace('*', ''))
+                        comp['n_err'] = float(err_m.group(5).replace('*', '').replace('[', '').replace(']', ''))
+                        comp['ba_err'] = float(err_m.group(6).replace('*', ''))
+                        comp['pa_err'] = float(err_m.group(7).replace('*', ''))
+                        i += 1  # skip error line
                 result['components'].append(comp)
+            i += 1
 
     return result
 
