@@ -14,13 +14,16 @@ function toggleParamHelp(btn) {
 function onPerfectChange() {
     var isYes = document.getElementById('perfect-yes').checked;
     var bestRoundGroup = document.getElementById('best-round-group');
+    var reasonGroup = document.getElementById('reason-group');
     var commentsGroup = document.getElementById('comments-group');
 
     if (isYes) {
         bestRoundGroup.style.display = 'block';
+        reasonGroup.style.display = 'block';
         commentsGroup.style.display = 'none';
     } else {
         bestRoundGroup.style.display = 'none';
+        reasonGroup.style.display = 'none';
         commentsGroup.style.display = 'block';
     }
 }
@@ -40,7 +43,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 var target = document.getElementById('round-' + roundNum);
                 if (target) {
                     target.classList.add('selected');
-                    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 }
             }
         });

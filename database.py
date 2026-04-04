@@ -53,6 +53,7 @@ def init_db(app):
                 sample_id INTEGER NOT NULL REFERENCES samples(id),
                 is_perfect INTEGER NOT NULL,
                 best_round INTEGER,
+                reason TEXT DEFAULT '',
                 comments TEXT DEFAULT '',
                 created_at TEXT DEFAULT (datetime('now')),
                 updated_at TEXT DEFAULT (datetime('now')),
@@ -63,3 +64,10 @@ def init_db(app):
             CREATE INDEX IF NOT EXISTS idx_votes_user ON votes(user_id);
         ''')
         db.commit()
+
+        # Migration: add reason column if not exists
+        try:
+            db.execute("ALTER TABLE votes ADD COLUMN reason TEXT DEFAULT ''")
+            db.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists

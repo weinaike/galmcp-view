@@ -57,7 +57,7 @@ def sample_list():
 
     samples = db.execute('''
         SELECT s.galaxy_id, s.num_rounds,
-               v.is_perfect, v.best_round, v.comments,
+               v.is_perfect, v.best_round, v.reason, v.comments,
                (SELECT COUNT(*) FROM votes WHERE sample_id = s.id) AS total_votes
         FROM samples s
         LEFT JOIN votes v ON v.sample_id = s.id AND v.user_id = ?
@@ -108,7 +108,7 @@ def sample_detail(galaxy_id):
         })
 
     my_vote = db.execute('''
-        SELECT is_perfect, best_round, comments
+        SELECT is_perfect, best_round, reason, comments
         FROM votes WHERE user_id = ? AND sample_id = ?
     ''', (user_id, sample['id'])).fetchone()
 
@@ -140,6 +140,7 @@ def submit_vote(galaxy_id):
 
     is_perfect = int(request.form.get('is_perfect', 0))
     best_round = request.form.get('best_round', '').strip()
+    reason = request.form.get('reason', '').strip()
     comments = request.form.get('comments', '').strip()
 
     if is_perfect == 1:
@@ -148,16 +149,18 @@ def submit_vote(galaxy_id):
         best_round = int(best_round)
     else:
         best_round = None
+        reason = None
 
     db.execute('''
-        INSERT INTO votes (user_id, sample_id, is_perfect, best_round, comments, updated_at)
-        VALUES (?, ?, ?, ?, ?, datetime('now'))
+        INSERT INTO votes (user_id, sample_id, is_perfect, best_round, reason, comments, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
         ON CONFLICT(user_id, sample_id) DO UPDATE SET
             is_perfect=excluded.is_perfect,
             best_round=excluded.best_round,
+            reason=excluded.reason,
             comments=excluded.comments,
             updated_at=datetime('now')
-    ''', (user_id, sample['id'], is_perfect, best_round, comments))
+    ''', (user_id, sample['id'], is_perfect, best_round, reason, comments))
     db.commit()
 
     return redirect(url_for('sample_detail', galaxy_id=galaxy_id))
@@ -207,7 +210,7 @@ def statistics():
     vote_data = {}
     for s in raw_samples:
         votes = db.execute('''
-            SELECT u.username, v.is_perfect, v.best_round, v.comments
+            SELECT u.username, v.is_perfect, v.best_round, v.reason, v.comments
             FROM votes v JOIN users u ON v.user_id = u.id
             WHERE v.sample_id = ?
             ORDER BY u.username

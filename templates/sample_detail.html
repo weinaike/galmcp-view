@@ -165,12 +165,20 @@
                 </select>
             </div>
 
+            <div class="form-group" id="reason-group"
+                 style="display: {% if my_vote and my_vote.is_perfect == 1 %}block{% else %}none{% endif %}">
+                <label for="reason">Q3: 选择该轮次的理由:</label>
+                <textarea name="reason" id="reason" rows="3"
+                          class="input-textarea"
+                          placeholder="请说明选择该轮次的理由，建议使用语音输入法以提高效率…">{{ my_vote.reason if my_vote else '' }}</textarea>
+            </div>
+
             <div class="form-group" id="comments-group"
                  style="display: {% if my_vote and my_vote.is_perfect == 0 %}block{% else %}none{% endif %}">
-                <label for="comments">Q3: 后续拟合建议（选"否"时填写）:</label>
+                <label for="comments">Q4: 后续拟合建议（选"否"时填写）:</label>
                 <textarea name="comments" id="comments" rows="3"
                           class="input-textarea"
-                          placeholder="描述后续拟合建议...">{{ my_vote.comments if my_vote else '' }}</textarea>
+                          placeholder="描述后续拟合建议，建议使用语音输入法以提高效率…">{{ my_vote.comments if my_vote else '' }}</textarea>
             </div>
 
             <div class="form-actions">

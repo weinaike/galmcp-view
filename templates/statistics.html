@@ -79,6 +79,7 @@
                     <th>用户</th>
                     <th>已接受?</th>
                     <th>最佳轮次</th>
+                    <th>选择理由</th>
                     <th>建议</th>
                 </tr>
             </thead>
@@ -88,6 +89,7 @@
                     <td>{{ v.username }}</td>
                     <td>{% if v.is_perfect == 1 %}是{% else %}否{% endif %}</td>
                     <td>{% if v.best_round is not none %}R{{ v.best_round }}{% else %}-{% endif %}</td>
+                    <td>{{ v.reason or '-' }}</td>
                     <td>{{ v.comments or '-' }}</td>
                 </tr>
                 {% endfor %}
