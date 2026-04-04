@@ -38,9 +38,9 @@
                     {% if s.is_perfect is not none %}
                         <span class="badge badge-done">
                             {% if s.is_perfect == 1 %}
-                                完美 (R{{ s.best_round }})
+                                已接受 (R{{ s.best_round }})
                             {% else %}
-                                不完美
+                                需继续拟合
                             {% endif %}
                         </span>
                     {% else %}

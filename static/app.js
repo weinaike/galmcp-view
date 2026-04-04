@@ -1,6 +1,6 @@
 /* === Galaxy Fitting Label Tool - Client-side JS === */
 
-// Toggle form sections based on "perfect" selection
+// Toggle form sections based on accept/reject selection
 function onPerfectChange() {
     var isYes = document.getElementById('perfect-yes').checked;
     var bestRoundGroup = document.getElementById('best-round-group');

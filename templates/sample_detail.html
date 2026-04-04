@@ -80,28 +80,28 @@
         <h3>我的评价</h3>
         <form method="POST" action="/sample/{{ galaxy_id }}/vote" id="vote-form">
             <div class="form-group">
-                <label>Q1: 该样本拟合结果是否已完美？</label>
+                <label>Q1: 拟合结果是否已包含可以接受的结果，无需继续拟合？</label>
                 <div class="radio-group">
                     <label class="radio-label">
                         <input type="radio" name="is_perfect" value="1"
                                id="perfect-yes"
                                {% if my_vote and my_vote.is_perfect == 1 %}checked{% endif %}
                                onchange="onPerfectChange()">
-                        完美 — 某个轮次已达到最终效果
+                        是 — 已有可接受的轮次，选择最优即可
                     </label>
                     <label class="radio-label">
                         <input type="radio" name="is_perfect" value="0"
                                id="perfect-no"
                                {% if my_vote and my_vote.is_perfect == 0 %}checked{% endif %}
                                onchange="onPerfectChange()">
-                        不完美 — 需要继续改进
+                        否 — 当前结果不可接受，需要继续拟合
                     </label>
                 </div>
             </div>
 
             <div class="form-group" id="best-round-group"
                  style="display: {% if my_vote and my_vote.is_perfect == 1 %}block{% else %}none{% endif %}">
-                <label for="best-round">Q2: 最佳轮次（完美时必选）:</label>
+                <label for="best-round">Q2: 最佳轮次（选"是"时必选）:</label>
                 <select name="best_round" id="best-round" class="input-select">
                     <option value="">-- 选择轮次 --</option>
                     {% for r in rounds %}
@@ -118,10 +118,10 @@
 
             <div class="form-group" id="comments-group"
                  style="display: {% if my_vote and my_vote.is_perfect == 0 %}block{% else %}none{% endif %}">
-                <label for="comments">Q3: 后续处理建议（不完美时填写）:</label>
+                <label for="comments">Q3: 后续拟合建议（选"否"时填写）:</label>
                 <textarea name="comments" id="comments" rows="3"
                           class="input-textarea"
-                          placeholder="描述需要如何改进...">{{ my_vote.comments if my_vote else '' }}</textarea>
+                          placeholder="描述后续拟合建议...">{{ my_vote.comments if my_vote else '' }}</textarea>
             </div>
 
             <div class="form-actions">
