@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}样本列表 - 星系拟合评价系统{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="header-bar">
+        <h2>样本列表</h2>
+        <div class="header-actions">
+            <span class="progress-text">进度: {{ evaluated }}/{{ total }} 已评价</span>
+            <form method="POST" action="/admin/rescan" class="inline-form">
+                <button type="submit" class="btn btn-sm">重新扫描</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="filter-bar">
+        <button class="filter-btn active" onclick="filterSamples('all')">全部 ({{ total }})</button>
+        <button class="filter-btn" onclick="filterSamples('evaluated')">已评价 ({{ evaluated }})</button>
+        <button class="filter-btn" onclick="filterSamples('pending')">未评价 ({{ total - evaluated }})</button>
+    </div>
+
+    <table class="sample-table">
+        <thead>
+            <tr>
+                <th>星系ID</th>
+                <th>轮次</th>
+                <th>我的状态</th>
+                <th>群体投票</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for s in samples %}
+            <tr class="sample-row" data-evaluated="{{ 'true' if s.is_perfect is not none else 'false' }}">
+                <td class="galaxy-id">{{ s.galaxy_id }}</td>
+                <td>{{ s.num_rounds }}</td>
+                <td>
+                    {% if s.is_perfect is not none %}
+                        <span class="badge badge-done">
+                            {% if s.is_perfect == 1 %}
+                                完美 (R{{ s.best_round }})
+                            {% else %}
+                                不完美
+                            {% endif %}
+                        </span>
+                    {% else %}
+                        <span class="badge badge-pending">未评价</span>
+                    {% endif %}
+                </td>
+                <td>{{ s.total_votes }}人</td>
+                <td><a href="/sample/{{ s.galaxy_id }}" class="btn btn-sm">查看</a></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

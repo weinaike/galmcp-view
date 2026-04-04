@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}统计 - 星系拟合评价系统{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="header-bar">
+        <h2>投票统计</h2>
+        <div class="header-actions">
+            <span class="meta">用户: {{ users|length }}人 | 样本: {{ samples|length }}个</span>
+        </div>
+    </div>
+
+    {# --- Summary Table --- #}
+    <table class="stats-table">
+        <thead>
+            <tr>
+                <th>星系ID</th>
+                <th>轮次</th>
+                <th>投票数</th>
+                <th>完美票</th>
+                <th>完美率</th>
+                <th>轮次偏好</th>
+                <th>共识轮次</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for s in samples %}
+            <tr>
+                <td><a href="/sample/{{ s.galaxy_id }}">{{ s.galaxy_id }}</a></td>
+                <td>{{ s.num_rounds }}</td>
+                <td>{{ s.total_votes }}</td>
+                <td>{{ s.perfect_count }}</td>
+                <td>{{ s.perfect_pct }}</td>
+                <td>{{ s.round_pref }}</td>
+                <td>{{ s.consensus }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    {# --- Completion Matrix --- #}
+    <h3 style="margin-top: 2rem;">完成度矩阵</h3>
+    <div class="matrix-wrapper">
+        <table class="matrix-table">
+            <thead>
+                <tr>
+                    <th>用户</th>
+                    {% for s in samples %}
+                    <th class="matrix-th">{{ s.galaxy_id|replace('goodsn_', '') }}</th>
+                    {% endfor %}
+                    <th>合计</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for u in users %}
+                <tr>
+                    <td>{{ u.username }}</td>
+                    {% for s in samples %}
+                    <td class="matrix-td {% if s.galaxy_id in matrix[u.username] %}cell-done{% else %}cell-empty{% endif %}">
+                        {% if s.galaxy_id in matrix[u.username] %}Y{% else %}-{% endif %}
+                    </td>
+                    {% endfor %}
+                    <td><strong>{{ matrix[u.username]|length }}</strong></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {# --- Detailed Votes --- #}
+    <h3 style="margin-top: 2rem;">详细投票记录</h3>
+    {% for s in samples %}
+    {% if vote_data[s.galaxy_id].votes %}
+    <div class="vote-detail-block">
+        <h4><a href="/sample/{{ s.galaxy_id }}">{{ s.galaxy_id }}</a></h4>
+        <table class="comp-table">
+            <thead>
+                <tr>
+                    <th>用户</th>
+                    <th>完美?</th>
+                    <th>最佳轮次</th>
+                    <th>建议</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for v in vote_data[s.galaxy_id].votes %}
+                <tr>
+                    <td>{{ v.username }}</td>
+                    <td>{% if v.is_perfect == 1 %}是{% else %}否{% endif %}</td>
+                    <td>{% if v.best_round is not none %}R{{ v.best_round }}{% else %}-{% endif %}</td>
+                    <td>{{ v.comments or '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+    {% endfor %}
+</div>
+{% endblock %}

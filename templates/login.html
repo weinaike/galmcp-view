@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 - 星系拟合评价系统</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="login-page">
+    <div class="login-card">
+        <h1>星系拟合评价系统</h1>
+        <p>Galaxy Fitting Label Tool</p>
+        {% if error %}
+        <div class="error">{{ error }}</div>
+        {% endif %}
+        <form method="POST" action="/login">
+            <input type="text" name="username" placeholder="输入用户名"
+                   autofocus required maxlength="50"
+                   class="input-username">
+            <button type="submit" class="btn btn-primary btn-full">进入</button>
+        </form>
+    </div>
+</body>
+</html>

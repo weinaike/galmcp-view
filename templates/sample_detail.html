@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}{{ galaxy_id }} - 星系拟合评价系统{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="header-bar">
+        <div>
+            <a href="/" class="back-link">&larr; 返回列表</a>
+            <h2>{{ galaxy_id }}</h2>
+            <span class="meta">{{ sample.num_rounds }} 轮拟合</span>
+        </div>
+        <div class="header-actions">
+            {% if next_sample %}
+            <a href="/sample/{{ next_sample }}" class="btn btn-primary">下一个未评价 &rarr;</a>
+            {% endif %}
+        </div>
+    </div>
+
+    {# --- Fitting Rounds (vertical layout) --- #}
+    <div class="rounds-section">
+        {% for r in rounds %}
+        <div class="round-card" data-round="{{ r.round_number }}" id="round-{{ r.round_number }}">
+            <div class="round-header">
+                <h3>轮次 {{ r.round_number }}</h3>
+                <span class="round-meta">{{ r.timestamp_dir }}</span>
+                {% if r.chi_squared_nu is not none %}
+                <span class="chi2-badge">&chi;&sup2;/&nu; = {{ '%.3f' | format(r.chi_squared_nu) }}</span>
+                {% endif %}
+            </div>
+
+            {% if r.has_png %}
+            <div class="round-image">
+                <img src="/image/{{ galaxy_id }}/{{ r.timestamp_dir }}"
+                     alt="Round {{ r.round_number }} comparison"
+                     loading="lazy">
+            </div>
+            {% endif %}
+
+            {% if r.components %}
+            <div class="components-section">
+                <h4>成分分解</h4>
+                <table class="comp-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>类型</th>
+                            <th>mag</th>
+                            <th>R<sub>e</sub> (pix)</th>
+                            <th>n</th>
+                            <th>b/a</th>
+                            <th>PA (&deg;)</th>
+                            <th>x</th>
+                            <th>y</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for c in r.components %}
+                        <tr>
+                            <td>{{ loop.index }}</td>
+                            <td>{{ c.type }}</td>
+                            <td>{{ '%.2f' | format(c.mag) }}</td>
+                            <td>{{ '%.2f' | format(c.re) }}</td>
+                            <td>{{ '%.2f' | format(c.n) }}</td>
+                            <td>{{ '%.2f' | format(c.ba) }}</td>
+                            <td>{{ '%.1f' | format(c.pa) }}</td>
+                            <td>{{ '%.1f' | format(c.x) }}</td>
+                            <td>{{ '%.1f' | format(c.y) }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+
+    {# --- Voting Form --- #}
+    <div class="vote-section">
+        <h3>我的评价</h3>
+        <form method="POST" action="/sample/{{ galaxy_id }}/vote" id="vote-form">
+            <div class="form-group">
+                <label>Q1: 该样本拟合结果是否已完美？</label>
+                <div class="radio-group">
+                    <label class="radio-label">
+                        <input type="radio" name="is_perfect" value="1"
+                               id="perfect-yes"
+                               {% if my_vote and my_vote.is_perfect == 1 %}checked{% endif %}
+                               onchange="onPerfectChange()">
+                        完美 — 某个轮次已达到最终效果
+                    </label>
+                    <label class="radio-label">
+                        <input type="radio" name="is_perfect" value="0"
+                               id="perfect-no"
+                               {% if my_vote and my_vote.is_perfect == 0 %}checked{% endif %}
+                               onchange="onPerfectChange()">
+                        不完美 — 需要继续改进
+                    </label>
+                </div>
+            </div>
+
+            <div class="form-group" id="best-round-group"
+                 style="display: {% if my_vote and my_vote.is_perfect == 1 %}block{% else %}none{% endif %}">
+                <label for="best-round">Q2: 最佳轮次（完美时必选）:</label>
+                <select name="best_round" id="best-round" class="input-select">
+                    <option value="">-- 选择轮次 --</option>
+                    {% for r in rounds %}
+                    <option value="{{ r.round_number }}"
+                            {% if my_vote and my_vote.best_round == r.round_number %}selected{% endif %}>
+                        轮次 {{ r.round_number }}
+                        {% if r.chi_squared_nu is not none %}
+                        (&chi;&sup2;/&nu;={{ '%.3f' | format(r.chi_squared_nu) }})
+                        {% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="form-group" id="comments-group"
+                 style="display: {% if my_vote and my_vote.is_perfect == 0 %}block{% else %}none{% endif %}">
+                <label for="comments">Q3: 后续处理建议（不完美时填写）:</label>
+                <textarea name="comments" id="comments" rows="3"
+                          class="input-textarea"
+                          placeholder="描述需要如何改进...">{{ my_vote.comments if my_vote else '' }}</textarea>
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">保存投票</button>
+                {% if next_sample %}
+                <a href="/sample/{{ next_sample }}" class="btn">跳过，下一个 &rarr;</a>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
