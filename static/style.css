@@ -546,3 +546,30 @@ nav {
     margin-bottom: 8px;
     font-size: 0.95rem;
 }
+
+/* === Log Section (collapsible) === */
+.log-toggle {
+    margin-left: auto;
+    font-size: 0.78rem;
+    padding: 2px 10px;
+}
+.log-section {
+    margin-top: 12px;
+    border-top: 1px solid var(--border);
+    padding-top: 12px;
+}
+.log-content {
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    font-family: monospace;
+    font-size: 0.82rem;
+    line-height: 1.5;
+    color: var(--text);
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    max-height: 600px;
+    overflow-y: auto;
+    margin: 0;
+}

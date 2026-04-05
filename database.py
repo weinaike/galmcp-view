@@ -71,3 +71,10 @@ def init_db(app):
             db.commit()
         except sqlite3.OperationalError:
             pass  # Column already exists
+
+        # Migration: add summary_path column if not exists
+        try:
+            db.execute("ALTER TABLE rounds ADD COLUMN summary_path TEXT")
+            db.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists

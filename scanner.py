@@ -194,16 +194,19 @@ def scan_galaxies(base_path, db):
                 except Exception as e:
                     print(f"Warning: failed to parse {summary_files[0]}: {e}")
 
+            summary_path = summary_files[0] if summary_files else None
+
             db.execute(
                 'INSERT INTO rounds (sample_id, round_number, timestamp_dir, png_path, '
-                'chi_squared_nu, components_json) '
-                'VALUES (?, ?, ?, ?, ?, ?) '
+                'chi_squared_nu, components_json, summary_path) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?) '
                 'ON CONFLICT(sample_id, round_number) DO UPDATE SET '
                 'timestamp_dir=excluded.timestamp_dir, png_path=excluded.png_path, '
                 'chi_squared_nu=excluded.chi_squared_nu, '
-                'components_json=excluded.components_json',
+                'components_json=excluded.components_json, '
+                'summary_path=excluded.summary_path',
                 (sample['id'], round_num, ts_dir, png_path,
-                 chi_squared_nu, components_json)
+                 chi_squared_nu, components_json, summary_path)
             )
 
     db.commit()

@@ -26,6 +26,10 @@
                 {% if r.chi_squared_nu is not none %}
                 <span class="chi2-badge">&chi;&sup2;/&nu; = {{ '%.3f' | format(r.chi_squared_nu) }}</span>
                 {% endif %}
+                {% if r.has_summary %}
+                <button type="button" class="btn btn-sm log-toggle"
+                        onclick="toggleLog(this, '{{ galaxy_id }}', '{{ r.timestamp_dir }}')">&#128196; 查看日志</button>
+                {% endif %}
             </div>
 
             {% if r.has_png %}
@@ -118,6 +122,12 @@
                         {% endfor %}
                     </tbody>
                 </table>
+            </div>
+            {% endif %}
+
+            {% if r.has_summary %}
+            <div class="log-section" style="display:none">
+                <pre class="log-content"></pre>
             </div>
             {% endif %}
         </div>

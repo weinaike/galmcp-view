@@ -1,5 +1,30 @@
 /* === Galaxy Fitting Label Tool - Client-side JS === */
 
+// Toggle log section visibility, lazy-load content on first open
+function toggleLog(btn, galaxyId, timestampDir) {
+    var roundCard = btn.closest('.round-card');
+    var logSection = roundCard.querySelector('.log-section');
+    if (!logSection) return;
+
+    var isHidden = logSection.style.display === 'none';
+
+    if (isHidden) {
+        // First time opening: fetch content if not already loaded
+        var preEl = logSection.querySelector('.log-content');
+        if (preEl && !preEl.textContent) {
+            fetch('/summary/' + galaxyId + '/' + timestampDir)
+                .then(function(resp) { return resp.text(); })
+                .then(function(text) { preEl.textContent = text; })
+                .catch(function() { preEl.textContent = '加载日志失败'; });
+        }
+        logSection.style.display = 'block';
+        btn.innerHTML = '&#128196; 收起日志';
+    } else {
+        logSection.style.display = 'none';
+        btn.innerHTML = '&#128196; 查看日志';
+    }
+}
+
 // Toggle parameter help box
 function toggleParamHelp(btn) {
     var helpBox = btn.closest('.components-section').querySelector('.param-help-box');

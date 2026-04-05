@@ -4,7 +4,7 @@ import os
 import json
 from functools import wraps
 from flask import (Flask, render_template, request, redirect, url_for,
-                   session, send_file, abort)
+                   session, send_file, abort, Response)
 from config import Config
 from database import get_db, close_db, init_db
 from scanner import scan_galaxies
@@ -85,7 +85,7 @@ def sample_detail(galaxy_id):
         abort(404)
 
     rounds = db.execute('''
-        SELECT id, round_number, timestamp_dir, png_path, chi_squared_nu, components_json
+        SELECT id, round_number, timestamp_dir, png_path, chi_squared_nu, components_json, summary_path
         FROM rounds
         WHERE sample_id = ?
         ORDER BY round_number
@@ -103,6 +103,7 @@ def sample_detail(galaxy_id):
             'round_number': r['round_number'],
             'timestamp_dir': r['timestamp_dir'],
             'has_png': r['png_path'] is not None,
+            'has_summary': r['summary_path'] is not None,
             'chi_squared_nu': r['chi_squared_nu'],
             'components': components,
         })
@@ -186,6 +187,31 @@ def serve_image(galaxy_id, timestamp_dir):
         abort(404)
 
     return send_file(png_path, mimetype='image/png')
+
+
+# --- Summary log serving ---
+
+@app.route('/summary/<galaxy_id>/<timestamp_dir>')
+@login_required
+def serve_summary(galaxy_id, timestamp_dir):
+    db = get_db()
+    row = db.execute('''
+        SELECT r.summary_path, r.timestamp_dir FROM rounds r
+        JOIN samples s ON r.sample_id = s.id
+        WHERE s.galaxy_id = ? AND r.timestamp_dir = ?
+    ''', (galaxy_id, timestamp_dir)).fetchone()
+
+    if not row:
+        abort(404)
+
+    summary_path = row['summary_path']
+    if not summary_path or not os.path.isfile(summary_path):
+        abort(404)
+
+    with open(summary_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    return Response(content, mimetype='text/plain; charset=utf-8')
 
 
 # --- Statistics ---
