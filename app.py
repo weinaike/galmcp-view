@@ -3,6 +3,7 @@
 import os
 import json
 from functools import wraps
+import markdown
 from flask import (Flask, render_template, request, redirect, url_for,
                    session, send_file, abort, Response)
 from config import Config
@@ -84,6 +85,11 @@ def sample_detail(galaxy_id):
     if not sample:
         abort(404)
 
+    # Check if analysis report exists
+    base_path = app.config['GALFIT_BASE_PATH']
+    report_path = os.path.join(base_path, galaxy_id, f'analysis_report_{galaxy_id}.md')
+    has_analysis_report = os.path.isfile(report_path)
+
     rounds = db.execute('''
         SELECT id, round_number, timestamp_dir, png_path, chi_squared_nu, components_json, summary_path
         FROM rounds
@@ -93,11 +99,15 @@ def sample_detail(galaxy_id):
 
     rounds_data = []
     for r in rounds:
-        components = []
-        if r['components_json']:
+        fit_log_path = os.path.join(base_path, galaxy_id, 'archives', r['timestamp_dir'], 'fit.log')
+        fit_log_content = ''
+        if os.path.isfile(fit_log_path):
             try:
-                components = json.loads(r['components_json'])
-            except json.JSONDecodeError:
+                with open(fit_log_path, 'r', encoding='utf-8', errors='replace') as f:
+                    lines = f.readlines()
+                # 跳过第 2-6 行（索引 1-5）：空行 + 文件路径信息
+                fit_log_content = ''.join(lines[:1] + lines[6:])
+            except OSError:
                 pass
         rounds_data.append({
             'round_number': r['round_number'],
@@ -105,13 +115,19 @@ def sample_detail(galaxy_id):
             'has_png': r['png_path'] is not None,
             'has_summary': r['summary_path'] is not None,
             'chi_squared_nu': r['chi_squared_nu'],
-            'components': components,
+            'fit_log': fit_log_content,
         })
 
     my_vote = db.execute('''
         SELECT is_perfect, best_round, reason, comments
         FROM votes WHERE user_id = ? AND sample_id = ?
     ''', (user_id, sample['id'])).fetchone()
+
+    prev_sample = db.execute('''
+        SELECT s.galaxy_id FROM samples s
+        WHERE s.galaxy_id < ?
+        ORDER BY s.galaxy_id DESC LIMIT 1
+    ''', (galaxy_id,)).fetchone()
 
     next_sample = db.execute('''
         SELECT s.galaxy_id FROM samples s
@@ -125,6 +141,8 @@ def sample_detail(galaxy_id):
                            sample=sample,
                            rounds=rounds_data,
                            my_vote=my_vote,
+                           has_analysis_report=has_analysis_report,
+                           prev_sample=prev_sample['galaxy_id'] if prev_sample else None,
                            next_sample=next_sample['galaxy_id'] if next_sample else None)
 
 
@@ -187,6 +205,21 @@ def serve_image(galaxy_id, timestamp_dir):
         abort(404)
 
     return send_file(png_path, mimetype='image/png')
+
+
+# --- Analysis report serving ---
+
+@app.route('/analysis-report/<galaxy_id>')
+@login_required
+def serve_analysis_report(galaxy_id):
+    report_path = os.path.join(app.config['GALFIT_BASE_PATH'],
+                               galaxy_id, f'analysis_report_{galaxy_id}.md')
+    if not os.path.isfile(report_path):
+        abort(404)
+    with open(report_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+    html = markdown.markdown(content, extensions=['tables', 'fenced_code', 'toc'])
+    return Response(html, mimetype='text/html; charset=utf-8')
 
 
 # --- Summary log serving ---

@@ -8,8 +8,14 @@
             <a href="/" class="back-link">&larr; 返回列表</a>
             <h2>{{ galaxy_id }}</h2>
             <span class="meta">{{ sample.num_rounds }} 轮拟合</span>
+            {% if has_analysis_report %}
+            <button type="button" class="btn btn-sm btn-report" onclick="openReportModal('{{ galaxy_id }}')">&#128202; Agent 分析报告</button>
+            {% endif %}
         </div>
         <div class="header-actions">
+            {% if prev_sample %}
+            <a href="/sample/{{ prev_sample }}" class="btn">&larr; 上一个</a>
+            {% endif %}
             {% if next_sample %}
             <a href="/sample/{{ next_sample }}" class="btn btn-primary">下一个未评价 &rarr;</a>
             {% endif %}
@@ -40,88 +46,10 @@
             </div>
             {% endif %}
 
-            {% if r.components %}
-            <div class="components-section">
-                <div class="section-header-row">
-                    <h4>成分分解</h4>
-                    <button type="button" class="btn btn-sm param-help-toggle" onclick="toggleParamHelp(this)">&#9432; 参数说明</button>
-                </div>
-                <div class="param-help-box" style="display:none">
-                    <table class="param-help-table">
-                        <thead>
-                            <tr><th>参数</th><th>含义</th><th>说明</th></tr>
-                        </thead>
-                        <tbody>
-                            <tr><td><strong>类型</strong></td><td>成分模型</td><td>sersic = S&eacute;rsic profile（通用星系轮廓）；expdisk = 指数盘；devauc = de Vaucouleurs profile（椭圆星系）；gaussian = 高斯成分；king = King profile；psf = 点扩散函数（点源/恒星）</td></tr>
-                            <tr><td><strong>mag</strong></td><td>积分星等</td><td>该成分的总亮度（视星等），数值越小越亮</td></tr>
-                            <tr><td><strong>R<sub>e</sub></strong></td><td>有效半径</td><td>包含该成分一半光通量的半径，单位为像素（pix），反映成分的大小</td></tr>
-                            <tr><td><strong>n</strong></td><td>S&eacute;rsic 指数</td><td>控制轮廓的集中程度：n≈1 为盘状（指数盘）；n≈4 为椭圆星系（de Vaucouleurs）；n 越大中心越集中</td></tr>
-                            <tr><td><strong>b/a</strong></td><td>轴比</td><td>短轴与长轴之比，1.0 = 正圆，0.0 = 完全扁平。反映椭圆度</td></tr>
-                            <tr><td><strong>PA</strong></td><td>位置角</td><td>长轴方向与北（上方）的夹角，单位为度（&deg;），逆时针为正</td></tr>
-                            <tr><td><strong>x, y</strong></td><td>中心位置</td><td>成分中心在拟合图像中的像素坐标</td></tr>
-                            <tr><td><strong>误差</strong></td><td>1&sigma; 不确定度</td><td>表格下方灰色小字为对应参数的拟合不确定度。若误差与值相近或更大，说明该参数约束不好</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-                <table class="comp-table">
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th>类型</th>
-                            <th>mag <span class="th-hint">星等</span></th>
-                            <th>R<sub>e</sub> <span class="th-hint">(pix)</span></th>
-                            <th>n <span class="th-hint">S&eacute;rsic</span></th>
-                            <th>b/a <span class="th-hint">轴比</span></th>
-                            <th>PA <span class="th-hint">(&deg;)</span></th>
-                            <th>x <span class="th-hint">(pix)</span></th>
-                            <th>y <span class="th-hint">(pix)</span></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for c in r.components %}
-                        <tr class="comp-row-{{ c.type }}">
-                            <td>{{ loop.index }}</td>
-                            <td><span class="comp-type-{{ c.type }}">{{ c.type }}</span></td>
-                            <td>
-                                {{ '%.2f' | format(c.mag) }}
-                                {% if c.mag_err is defined %}<span class="err-val">&plusmn;{{ '%.2f' | format(c.mag_err) }}</span>{% endif %}
-                            </td>
-                            <td>
-                                {% if c.re is defined %}
-                                {{ '%.2f' | format(c.re) }}
-                                {% if c.re_err is defined %}<span class="err-val">&plusmn;{{ '%.2f' | format(c.re_err) }}</span>{% endif %}
-                                {% else %}<span class="na-cell">&mdash;</span>{% endif %}
-                            </td>
-                            <td>
-                                {% if c.n is defined %}
-                                {{ '%.2f' | format(c.n) }}
-                                {% if c.n_err is defined %}<span class="err-val">&plusmn;{{ '%.2f' | format(c.n_err) }}</span>{% endif %}
-                                {% else %}<span class="na-cell">&mdash;</span>{% endif %}
-                            </td>
-                            <td>
-                                {% if c.ba is defined %}
-                                {{ '%.2f' | format(c.ba) }}
-                                {% if c.ba_err is defined %}<span class="err-val">&plusmn;{{ '%.2f' | format(c.ba_err) }}</span>{% endif %}
-                                {% else %}<span class="na-cell">&mdash;</span>{% endif %}
-                            </td>
-                            <td>
-                                {% if c.pa is defined %}
-                                {{ '%.1f' | format(c.pa) }}
-                                {% if c.pa_err is defined %}<span class="err-val">&plusmn;{{ '%.1f' | format(c.pa_err) }}</span>{% endif %}
-                                {% else %}<span class="na-cell">&mdash;</span>{% endif %}
-                            </td>
-                            <td>
-                                {{ '%.1f' | format(c.x) }}
-                                {% if c.x_err is defined %}<span class="err-val">&plusmn;{{ '%.2f' | format(c.x_err) }}</span>{% endif %}
-                            </td>
-                            <td>
-                                {{ '%.1f' | format(c.y) }}
-                                {% if c.y_err is defined %}<span class="err-val">&plusmn;{{ '%.2f' | format(c.y_err) }}</span>{% endif %}
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+            {% if r.fit_log %}
+            <div class="fitlog-section">
+                <h4>fit.log</h4>
+                <pre class="fitlog-content">{{ r.fit_log }}</pre>
             </div>
             {% endif %}
 
@@ -199,5 +127,18 @@
             </div>
         </form>
     </div>
+
+    {# --- Analysis Report Modal --- #}
+    {% if has_analysis_report %}
+    <div class="modal-overlay" id="report-modal" onclick="closeReportModal(event)">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h3>Agent 分析报告</h3>
+                <button type="button" class="modal-close" onclick="closeReportModal()">&times;</button>
+            </div>
+            <div class="modal-body"><div class="report-content" id="report-body"></div></div>
+        </div>
+    </div>
+    {% endif %}
 </div>
 {% endblock %}

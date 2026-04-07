@@ -25,16 +25,6 @@ function toggleLog(btn, galaxyId, timestampDir) {
     }
 }
 
-// Toggle parameter help box
-function toggleParamHelp(btn) {
-    var helpBox = btn.closest('.components-section').querySelector('.param-help-box');
-    if (helpBox) {
-        var isHidden = helpBox.style.display === 'none';
-        helpBox.style.display = isHidden ? 'block' : 'none';
-        btn.textContent = isHidden ? '\u2715 关闭说明' : '\u2139 参数说明';
-    }
-}
-
 // Toggle form sections based on accept/reject selection
 function onPerfectChange() {
     var isYes = document.getElementById('perfect-yes').checked;
@@ -109,4 +99,26 @@ function filterSamples(type) {
             row.style.display = evaluated ? 'none' : '';
         }
     });
+}
+
+// --- Analysis Report Modal ---
+
+function openReportModal(galaxyId) {
+    var modal = document.getElementById('report-modal');
+    var body = document.getElementById('report-body');
+    if (!modal || !body) return;
+    body.innerHTML = '<p style="color:var(--text-muted)">加载中…</p>';
+    modal.classList.add('active');
+
+    fetch('/analysis-report/' + galaxyId)
+        .then(function(resp) { return resp.text(); })
+        .then(function(html) { body.innerHTML = html; })
+        .catch(function() { body.innerHTML = '<p style="color:var(--red)">加载报告失败</p>'; });
+}
+
+function closeReportModal(e) {
+    var modal = document.getElementById('report-modal');
+    if (!modal) return;
+    if (e && e.target !== modal && !e.target.classList.contains('modal-close')) return;
+    modal.classList.remove('active');
 }
