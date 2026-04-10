@@ -3,7 +3,7 @@
 // Toggle log section visibility, lazy-load content on first open
 function toggleLog(btn, galaxyId, timestampDir) {
     var roundCard = btn.closest('.round-card');
-    var logSection = roundCard.querySelector('.log-section');
+    var logSection = roundCard.querySelector('.log-section:not(.comp-analysis-section)');
     if (!logSection) return;
 
     var isHidden = logSection.style.display === 'none';
@@ -22,6 +22,30 @@ function toggleLog(btn, galaxyId, timestampDir) {
     } else {
         logSection.style.display = 'none';
         btn.innerHTML = '&#128196; 查看日志';
+    }
+}
+
+// Toggle component analysis section visibility, lazy-load content on first open
+function toggleCompAnalysis(btn, galaxyId, timestampDir) {
+    var roundCard = btn.closest('.round-card');
+    var section = roundCard.querySelector('.comp-analysis-section');
+    if (!section) return;
+
+    var isHidden = section.style.display === 'none';
+
+    if (isHidden) {
+        var contentEl = section.querySelector('.comp-analysis-content');
+        if (contentEl && !contentEl.innerHTML) {
+            fetch('/component-analysis/' + galaxyId + '/' + timestampDir)
+                .then(function(resp) { return resp.text(); })
+                .then(function(html) { contentEl.innerHTML = html; })
+                .catch(function() { contentEl.innerHTML = '<p style="color:var(--red)">加载成分分析失败</p>'; });
+        }
+        section.style.display = 'block';
+        btn.innerHTML = '&#128269; 收起成分分析';
+    } else {
+        section.style.display = 'none';
+        btn.innerHTML = '&#128269; 显示成分分析';
     }
 }
 

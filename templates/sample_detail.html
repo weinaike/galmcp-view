@@ -52,6 +52,10 @@
                 <button type="button" class="btn btn-sm log-toggle"
                         onclick="toggleLog(this, '{{ galaxy_id }}', '{{ r.timestamp_dir }}')">&#128196; 查看日志</button>
                 {% endif %}
+                {% if r.has_comp_analysis %}
+                <button type="button" class="btn btn-sm log-toggle"
+                        onclick="toggleCompAnalysis(this, '{{ galaxy_id }}', '{{ r.timestamp_dir }}')">&#128269; 显示成分分析</button>
+                {% endif %}
             </div>
 
             {% if r.has_png %}
@@ -72,6 +76,13 @@
             {% if r.has_summary %}
             <div class="log-section" style="display:none">
                 <pre class="log-content"></pre>
+            </div>
+            {% endif %}
+
+            {% if r.has_comp_analysis %}
+            <div class="log-section comp-analysis-section" style="display:none">
+                <div class="comp-analysis-filepath" style="color:var(--text-muted);font-size:0.8rem;margin-bottom:8px;">&#128193; {{ r.comp_analysis_path }}</div>
+                <div class="comp-analysis-content"></div>
             </div>
             {% endif %}
         </div>

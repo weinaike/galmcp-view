@@ -177,11 +177,24 @@ def sample_detail(galaxy_id):
                 fit_log_content = ''.join(lines[:1] + lines[6:])
             except OSError:
                 pass
+        # Check for component analysis file (*_component_analysis.md)
+        archive_dir = os.path.join(base_path, galaxy_id, 'archives', r['timestamp_dir'])
+        comp_analysis_file = None
+        try:
+            comp_analysis_file = next(
+                (f for f in os.listdir(archive_dir) if f.endswith('_component_analysis.md')),
+                None
+            )
+        except OSError:
+            pass
+
         rounds_data.append({
             'round_number': r['round_number'],
             'timestamp_dir': r['timestamp_dir'],
             'has_png': r['png_path'] is not None,
             'has_summary': r['summary_path'] is not None,
+            'has_comp_analysis': comp_analysis_file is not None,
+            'comp_analysis_path': os.path.join(archive_dir, comp_analysis_file) if comp_analysis_file else '',
             'chi_squared_nu': r['chi_squared_nu'],
             'fit_log': fit_log_content,
         })
@@ -314,6 +327,32 @@ def serve_summary(galaxy_id, timestamp_dir):
         content = f.read()
 
     return Response(content, mimetype='text/plain; charset=utf-8')
+
+
+# --- Component analysis serving ---
+
+@app.route('/component-analysis/<galaxy_id>/<timestamp_dir>')
+@login_required
+def serve_component_analysis(galaxy_id, timestamp_dir):
+    archive_dir = os.path.join(app.config['GALFIT_BASE_PATH'],
+                               galaxy_id, 'archives', timestamp_dir)
+    try:
+        filename = next(
+            (f for f in os.listdir(archive_dir) if f.endswith('_component_analysis.md')),
+            None
+        )
+    except OSError:
+        filename = None
+
+    if not filename:
+        abort(404)
+
+    filepath = os.path.join(archive_dir, filename)
+    with open(filepath, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    html = markdown.markdown(content, extensions=['tables', 'fenced_code', 'toc'])
+    return Response(html, mimetype='text/html; charset=utf-8')
 
 
 # --- Statistics ---
