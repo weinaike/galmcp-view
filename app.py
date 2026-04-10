@@ -10,6 +10,74 @@ from config import Config
 from database import get_db, close_db, init_db
 from scanner import scan_galaxies
 
+
+# --- S4G table7 loader ---
+_s4g_data = None
+
+def _load_s4g_table():
+    global _s4g_data
+    if _s4g_data is not None:
+        return _s4g_data
+
+    tsv_path = os.path.join(os.path.dirname(__file__), 'static', 's4g_table7.tsv')
+    if not os.path.isfile(tsv_path):
+        _s4g_data = {}
+        return _s4g_data
+
+    data = {}
+    with open(tsv_path, 'r', encoding='utf-8') as f:
+        # skip comment lines and blank lines to find header
+        for line in f:
+            stripped = line.strip()
+            if stripped and not stripped.startswith('#'):
+                header_line = stripped
+                break
+        next(f)  # units line
+        next(f)  # separator line
+        headers = header_line.split('\t')
+
+        for line in f:
+            parts = line.split('\t')
+            row = {}
+            for i, h in enumerate(headers):
+                if i < len(parts):
+                    val = parts[i].strip()
+                    row[h] = val if val else None
+            name = row.get('Name')
+            if name:
+                data.setdefault(name, []).append(row)
+
+    _s4g_data = data
+    return _s4g_data
+
+
+def _get_s4g_components(galaxy_id):
+    """Get S4G table7 decomposition components for a galaxy."""
+    data = _load_s4g_table()
+    raw_rows = data.get(galaxy_id, [])
+
+    param_map = {
+        'sersic':   ['f1', 'mag1', 'q1', 'PA1', 'Re', 'n'],
+        'edgedisk': ['f2', 'mu02', 'PA2', 'hr2', 'hz2'],
+        'expdisk':  ['f3', 'mag3', 'q3', 'PA3', 'hr3', 'mu03'],
+        'ferrer2':  ['f4', 'mu04', 'q4', 'PA4', 'Rbar'],
+        'psf':      ['f5', 'mag5'],
+    }
+
+    components = []
+    for row in raw_rows:
+        fn = (row.get('Fn') or '').strip()
+        params = {}
+        for k in param_map.get(fn, []):
+            if row.get(k):
+                params[k] = row[k]
+        components.append({
+            'type': (row.get('C') or '').strip(),
+            'function': fn,
+            'params': params,
+        })
+    return components
+
 app = Flask(__name__)
 app.config.from_object(Config)
 
@@ -142,6 +210,7 @@ def sample_detail(galaxy_id):
                            rounds=rounds_data,
                            my_vote=my_vote,
                            has_analysis_report=has_analysis_report,
+                           s4g_components=_get_s4g_components(galaxy_id),
                            prev_sample=prev_sample['galaxy_id'] if prev_sample else None,
                            next_sample=next_sample['galaxy_id'] if next_sample else None)
 

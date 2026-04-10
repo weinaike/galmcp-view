@@ -665,3 +665,48 @@ nav {
     overflow-y: auto;
     margin: 0;
 }
+
+/* === S4G Components Section === */
+.s4g-section {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    margin-bottom: 24px;
+}
+.s4g-section h3 {
+    font-size: 1rem;
+    margin-bottom: 12px;
+    color: var(--accent);
+}
+.s4g-comp-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.85rem;
+}
+.s4g-comp-row:last-child {
+    border-bottom: none;
+}
+.s4g-type-badge {
+    background: rgba(88, 166, 255, 0.15);
+    color: var(--accent);
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-weight: 600;
+    min-width: 40px;
+    text-align: center;
+}
+.s4g-fn {
+    color: var(--text-muted);
+    font-style: italic;
+    min-width: 80px;
+}
+.s4g-param {
+    font-family: monospace;
+    color: var(--green);
+    font-size: 0.82rem;
+}

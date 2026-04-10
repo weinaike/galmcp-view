@@ -22,6 +22,22 @@
         </div>
     </div>
 
+    {# --- S4G Real Components --- #}
+    {% if s4g_components %}
+    <div class="s4g-section">
+        <h3>S4G 真实成分</h3>
+        {% for comp in s4g_components %}
+        <div class="s4g-comp-row">
+            <span class="s4g-type-badge">{{ comp.type }}</span>
+            <span class="s4g-fn">{{ comp.function }}</span>
+            {% for k, v in comp.params.items() %}
+            <span class="s4g-param">{{ k }}={{ v }}</span>
+            {% endfor %}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
     {# --- Fitting Rounds (vertical layout) --- #}
     <div class="rounds-section">
         {% for r in rounds %}
