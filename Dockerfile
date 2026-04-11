@@ -7,8 +7,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Create data directory for galfit results
-RUN mkdir -p /data/galfit_example
+# Create data directories for galfit results and analysis images
+RUN mkdir -p /data/galfit_example /data/analysis_images
 
 ENV GALFIT_BASE_PATH=/data/galfit_example
 

@@ -3,3 +3,4 @@ __pycache__
 *.db
 .git
 .gitignore
+analysis_data/images

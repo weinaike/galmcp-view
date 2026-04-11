@@ -2,6 +2,7 @@
 
 import os
 import json
+import statistics as stats_mod
 from functools import wraps
 import markdown
 from flask import (Flask, render_template, request, redirect, url_for,
@@ -118,7 +119,7 @@ def logout():
 
 # --- Sample list ---
 
-@app.route('/')
+@app.route('/voting/')
 @login_required
 def sample_list():
     db = get_db()
@@ -435,6 +436,217 @@ def statistics():
                            vote_data=vote_data, matrix=matrix)
 
 
+# --- Analysis Evaluation: Data Initialization ---
+
+def init_analysis_data(app):
+    """One-time: populate a_galaxies from analysis_results.json."""
+    data_file = os.path.join(os.path.dirname(__file__), 'analysis_data', 'analysis_results.json')
+    if not os.path.isfile(data_file):
+        return
+    with open(data_file, 'r', encoding='utf-8') as f:
+        results = json.load(f)
+    db = get_db()
+    for entry in results:
+        image_rel = entry['image_path'].lstrip('./')
+        db.execute(
+            'INSERT OR IGNORE INTO a_galaxies (galaxy_name, image_path, analysis_text, sort_order) '
+            'VALUES (?, ?, ?, ?)',
+            (entry['galaxy'], image_rel, entry['analysis'], entry['id'])
+        )
+    db.commit()
+
+
+# --- Analysis Evaluation Routes ---
+
+@app.route('/')
+@login_required
+def analysis_list():
+    db = get_db()
+    user_id = session['user_id']
+
+    galaxies = db.execute('''
+        SELECT g.id, g.galaxy_name, g.sort_order,
+               e.residual_desc_rating, e.reasoning_rating, e.overall_rating,
+               (SELECT COUNT(*) FROM a_evaluations WHERE galaxy_id = g.id) AS total_evals,
+               (SELECT ROUND(AVG(overall_rating),1) FROM a_evaluations WHERE galaxy_id = g.id) AS avg_overall
+        FROM a_galaxies g
+        LEFT JOIN a_evaluations e ON e.galaxy_id = g.id AND e.user_id = ?
+        ORDER BY g.sort_order
+    ''', (user_id,)).fetchall()
+
+    total = len(galaxies)
+    evaluated = sum(1 for g in galaxies if g['overall_rating'] is not None)
+
+    return render_template('analysis_list.html',
+                           galaxies=galaxies, total=total, evaluated=evaluated)
+
+
+@app.route('/analysis/eval/<galaxy_name>')
+@login_required
+def analysis_eval(galaxy_name):
+    db = get_db()
+    user_id = session['user_id']
+
+    galaxy = db.execute('SELECT * FROM a_galaxies WHERE galaxy_name = ?',
+                        (galaxy_name,)).fetchone()
+    if not galaxy:
+        abort(404)
+
+    my_eval = db.execute('''
+        SELECT residual_desc_rating, reasoning_rating, overall_rating, feedback
+        FROM a_evaluations WHERE user_id = ? AND galaxy_id = ?
+    ''', (user_id, galaxy['id'])).fetchone()
+
+    # Previous / next navigation (by sort_order)
+    prev_g = db.execute('''
+        SELECT galaxy_name FROM a_galaxies
+        WHERE sort_order < ? ORDER BY sort_order DESC LIMIT 1
+    ''', (galaxy['sort_order'],)).fetchone()
+
+    next_g = db.execute('''
+        SELECT galaxy_name FROM a_galaxies
+        WHERE sort_order > ? AND id NOT IN
+            (SELECT galaxy_id FROM a_evaluations WHERE user_id = ?)
+        ORDER BY sort_order LIMIT 1
+    ''', (galaxy['sort_order'], user_id)).fetchone()
+
+    # Render analysis text as Markdown HTML
+    analysis_html = markdown.markdown(
+        galaxy['analysis_text'],
+        extensions=['tables', 'fenced_code', 'toc']
+    )
+
+    return render_template('analysis_eval.html',
+                           galaxy=galaxy,
+                           analysis_html=analysis_html,
+                           my_eval=my_eval,
+                           prev_galaxy=prev_g['galaxy_name'] if prev_g else None,
+                           next_galaxy=next_g['galaxy_name'] if next_g else None)
+
+
+@app.route('/analysis/eval/<galaxy_name>/rate', methods=['POST'])
+@login_required
+def analysis_rate(galaxy_name):
+    db = get_db()
+    user_id = session['user_id']
+
+    galaxy = db.execute('SELECT id FROM a_galaxies WHERE galaxy_name = ?',
+                        (galaxy_name,)).fetchone()
+    if not galaxy:
+        abort(404)
+
+    residual = int(request.form.get('residual_desc_rating', 0))
+    reasoning = int(request.form.get('reasoning_rating', 0))
+    overall = int(request.form.get('overall_rating', 0))
+    feedback = request.form.get('feedback', '').strip()
+
+    if not (1 <= residual <= 5 and 1 <= reasoning <= 5 and 1 <= overall <= 5):
+        return redirect(url_for('analysis_eval', galaxy_name=galaxy_name))
+
+    db.execute('''
+        INSERT INTO a_evaluations (user_id, galaxy_id, residual_desc_rating, reasoning_rating, overall_rating, feedback, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(user_id, galaxy_id) DO UPDATE SET
+            residual_desc_rating=excluded.residual_desc_rating,
+            reasoning_rating=excluded.reasoning_rating,
+            overall_rating=excluded.overall_rating,
+            feedback=excluded.feedback,
+            updated_at=datetime('now')
+    ''', (user_id, galaxy['id'], residual, reasoning, overall, feedback))
+    db.commit()
+
+    return redirect(url_for('analysis_eval', galaxy_name=galaxy_name))
+
+
+@app.route('/analysis/image/<path:img_path>')
+@login_required
+def analysis_serve_image(img_path):
+    base_dir = app.config['ANALYSIS_IMAGE_DIR']
+    # Strip leading "filter_comp_q5/" if present (stored path includes it, mount does not)
+    if img_path.startswith('filter_comp_q5/'):
+        img_path = img_path[len('filter_comp_q5/'):]
+    safe_path = os.path.normpath(os.path.join(base_dir, img_path))
+    if not safe_path.startswith(os.path.normpath(base_dir)):
+        abort(403)
+    if not os.path.isfile(safe_path):
+        abort(404)
+    return send_file(safe_path, mimetype='image/png')
+
+
+@app.route('/analysis/statistics')
+@login_required
+def analysis_statistics():
+    db = get_db()
+
+    users = db.execute('SELECT id, username FROM users ORDER BY username').fetchall()
+
+    raw_galaxies = db.execute('''
+        SELECT g.id, g.galaxy_name, g.sort_order,
+               (SELECT COUNT(*) FROM a_evaluations WHERE galaxy_id = g.id) AS total_evals
+        FROM a_galaxies g
+        ORDER BY g.sort_order
+    ''').fetchall()
+
+    galaxies = []
+    for g in raw_galaxies:
+        evals = db.execute('''
+            SELECT residual_desc_rating, reasoning_rating, overall_rating, feedback,
+                   u.username
+            FROM a_evaluations e JOIN users u ON e.user_id = u.id
+            WHERE e.galaxy_id = ?
+            ORDER BY u.username
+        ''', (g['id'],)).fetchall()
+
+        total = g['total_evals']
+        if total > 0:
+            avg_res = sum(e['residual_desc_rating'] for e in evals) / total
+            avg_rea = sum(e['reasoning_rating'] for e in evals) / total
+            avg_ovr = sum(e['overall_rating'] for e in evals) / total
+            std_ovr = stats_mod.stdev([e['overall_rating'] for e in evals]) if total > 1 else 0
+        else:
+            avg_res = avg_rea = avg_ovr = std_ovr = 0
+
+        galaxies.append({
+            'galaxy_name': g['galaxy_name'],
+            'sort_order': g['sort_order'],
+            'total_evals': total,
+            'avg_res': round(avg_res, 1),
+            'avg_rea': round(avg_rea, 1),
+            'avg_ovr': round(avg_ovr, 1),
+            'std_ovr': round(std_ovr, 1),
+            'evals': evals,
+        })
+
+    # Completion matrix
+    matrix = {}
+    for u in users:
+        user_evals = db.execute(
+            'SELECT g.galaxy_name FROM a_evaluations e '
+            'JOIN a_galaxies g ON e.galaxy_id = g.id '
+            'WHERE e.user_id = ?', (u['id'],)
+        ).fetchall()
+        matrix[u['username']] = [v['galaxy_name'] for v in user_evals]
+
+    # Per-user summary
+    user_summary = []
+    for u in users:
+        u_evals = db.execute('''
+            SELECT residual_desc_rating, reasoning_rating, overall_rating
+            FROM a_evaluations WHERE user_id = ?
+        ''', (u['id'],)).fetchall()
+        if u_evals:
+            user_summary.append({
+                'username': u['username'],
+                'count': len(u_evals),
+                'avg_overall': round(sum(e['overall_rating'] for e in u_evals) / len(u_evals), 1),
+                'dist': {i: sum(1 for e in u_evals if e['overall_rating'] == i) for i in range(1, 6)},
+            })
+
+    return render_template('analysis_stats.html',
+                           users=users, galaxies=galaxies,
+                           matrix=matrix, user_summary=user_summary)
+
+
 # --- Admin ---
 
 @app.route('/admin/rescan', methods=['POST'])
@@ -455,4 +667,5 @@ if __name__ == '__main__':
     with app.app_context():
         db = get_db()
         scan_galaxies(app.config['GALFIT_BASE_PATH'], db)
+        init_analysis_data(app)
     app.run(debug=True, host='0.0.0.0', port=35091)

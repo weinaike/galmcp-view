@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}星系拟合评价系统{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    {% block head %}{% endblock %}
 </head>
 <body>
     <nav>
@@ -13,8 +14,9 @@
         </div>
         <div class="nav-links">
             {% if session.get('user_id') %}
-            <a href="/">样本列表</a>
-            <a href="/statistics">统计</a>
+            <a href="/">残差图评价</a>
+            <a href="/voting/">拟合投票</a>
+            <a href="/statistics">投票统计</a>
             <span class="nav-user">用户: {{ session.username }}</span>
             <form method="POST" action="/logout" class="inline-form">
                 <button type="submit" class="btn btn-sm">退出</button>
