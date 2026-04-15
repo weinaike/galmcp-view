@@ -1,0 +1,5 @@
+.playwright-mcp
+__pycache__
+analysis_data
+db_data
+data

@@ -81,6 +81,56 @@ def _get_s4g_components(galaxy_id):
 
 app = Flask(__name__)
 app.config.from_object(Config)
+base_path = app.config['GALFIT_BASE_PATH']
+
+
+def _load_final_chi2():
+    """Load final_chi2.json mapping galaxy_id -> chi2 value."""
+    path = os.path.join(os.path.dirname(__file__), 'static', 'final_chi2.json')
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _find_analysis_report_path(galaxy_id):
+
+    galaxy_dir = os.path.join(base_path, galaxy_id)
+    try:
+        candidates = [
+            f for f in sorted(os.listdir(galaxy_dir))
+            if 'analysis_report' in f and f.endswith('.md')
+        ]
+    except OSError:
+        return None
+    if not candidates:
+        return None
+    return os.path.join(galaxy_dir, candidates[0])
+
+
+def _parse_best_turn(galaxy_id):
+    """Extract best_turn timestamp_dir from analysis_report.md JSON block."""
+    import re
+    report_path = _find_analysis_report_path(galaxy_id)
+    if not report_path:
+        return None
+    try:
+        with open(report_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+    except OSError:
+        return None
+    m = re.search(r'"best_turn"\s*:\s*"([^"]+)"', content)
+    return m.group(1) if m else None
+
+
+
+
+@app.route('/')
+def index():
+    return redirect(url_for('login'))
 
 
 def login_required(f):
@@ -107,7 +157,7 @@ def login():
                           (username,)).fetchone()
         session['user_id'] = user['id']
         session['username'] = user['username']
-        return redirect(url_for('sample_list'))
+        return redirect('/voting/')
     return render_template('login.html')
 
 
@@ -155,9 +205,19 @@ def sample_detail(galaxy_id):
         abort(404)
 
     # Check if analysis report exists
-    base_path = app.config['GALFIT_BASE_PATH']
-    report_path = os.path.join(base_path, galaxy_id, f'analysis_report_{galaxy_id}.md')
-    has_analysis_report = os.path.isfile(report_path)
+    report_path = _find_analysis_report_path(galaxy_id)
+    has_analysis_report = report_path is not None
+
+    # Check for *_comparison.png in galaxy directory
+    comparison_png = None
+    galaxy_dir = os.path.join(base_path, galaxy_id)
+    try:
+        comparison_png = next(
+            (f for f in os.listdir(galaxy_dir) if f.endswith('_comparison.png')),
+            None
+        )
+    except OSError:
+        pass
 
     rounds = db.execute('''
         SELECT id, round_number, timestamp_dir, png_path, chi_squared_nu, components_json, summary_path
@@ -224,7 +284,10 @@ def sample_detail(galaxy_id):
                            rounds=rounds_data,
                            my_vote=my_vote,
                            has_analysis_report=has_analysis_report,
+                           has_comparison_png=comparison_png is not None,
                            s4g_components=_get_s4g_components(galaxy_id),
+                           best_turn=_parse_best_turn(galaxy_id),
+                           final_chi2=_load_final_chi2().get(galaxy_id),
                            prev_sample=prev_sample['galaxy_id'] if prev_sample else None,
                            next_sample=next_sample['galaxy_id'] if next_sample else None)
 
@@ -290,14 +353,29 @@ def serve_image(galaxy_id, timestamp_dir):
     return send_file(png_path, mimetype='image/png')
 
 
+@app.route('/comparison-image/<galaxy_id>')
+@login_required
+def serve_comparison_image(galaxy_id):
+    galaxy_dir = os.path.join(base_path, galaxy_id)
+    try:
+        filename = next(
+            (f for f in os.listdir(galaxy_dir) if f.endswith('_comparison.png')),
+            None
+        )
+    except OSError:
+        filename = None
+    if not filename:
+        abort(404)
+    return send_file(os.path.join(galaxy_dir, filename), mimetype='image/png')
+
+
 # --- Analysis report serving ---
 
 @app.route('/analysis-report/<galaxy_id>')
 @login_required
 def serve_analysis_report(galaxy_id):
-    report_path = os.path.join(app.config['GALFIT_BASE_PATH'],
-                               galaxy_id, f'analysis_report_{galaxy_id}.md')
-    if not os.path.isfile(report_path):
+    report_path = _find_analysis_report_path(galaxy_id)
+    if not report_path or not os.path.isfile(report_path):
         abort(404)
     with open(report_path, 'r', encoding='utf-8') as f:
         content = f.read()
@@ -458,7 +536,7 @@ def init_analysis_data(app):
 
 # --- Analysis Evaluation Routes ---
 
-@app.route('/')
+@app.route('/analysis/')
 @login_required
 def analysis_list():
     db = get_db()
@@ -466,16 +544,16 @@ def analysis_list():
 
     galaxies = db.execute('''
         SELECT g.id, g.galaxy_name, g.sort_order,
-               e.residual_desc_rating, e.reasoning_rating, e.overall_rating,
+               e.image_desc_rating, e.residual_desc_rating, e.component_pred_rating,
                (SELECT COUNT(*) FROM a_evaluations WHERE galaxy_id = g.id) AS total_evals,
-               (SELECT ROUND(AVG(overall_rating),1) FROM a_evaluations WHERE galaxy_id = g.id) AS avg_overall
+               (SELECT ROUND(AVG(component_pred_rating),1) FROM a_evaluations WHERE galaxy_id = g.id) AS avg_overall
         FROM a_galaxies g
         LEFT JOIN a_evaluations e ON e.galaxy_id = g.id AND e.user_id = ?
         ORDER BY g.sort_order
     ''', (user_id,)).fetchall()
 
     total = len(galaxies)
-    evaluated = sum(1 for g in galaxies if g['overall_rating'] is not None)
+    evaluated = sum(1 for g in galaxies if g['component_pred_rating'] is not None)
 
     return render_template('analysis_list.html',
                            galaxies=galaxies, total=total, evaluated=evaluated)
@@ -493,7 +571,8 @@ def analysis_eval(galaxy_name):
         abort(404)
 
     my_eval = db.execute('''
-        SELECT residual_desc_rating, reasoning_rating, overall_rating, feedback
+        SELECT image_desc_rating, residual_desc_rating, component_pred_rating, feedback,
+               image_desc_feedback, residual_desc_feedback, component_pred_feedback
         FROM a_evaluations WHERE user_id = ? AND galaxy_id = ?
     ''', (user_id, galaxy['id'])).fetchone()
 
@@ -535,24 +614,31 @@ def analysis_rate(galaxy_name):
     if not galaxy:
         abort(404)
 
-    residual = int(request.form.get('residual_desc_rating', 0))
-    reasoning = int(request.form.get('reasoning_rating', 0))
-    overall = int(request.form.get('overall_rating', 0))
+    image_desc = int(request.form.get('image_desc_rating', 0))
+    residual_desc = int(request.form.get('residual_desc_rating', 0))
+    component_pred = int(request.form.get('component_pred_rating', 0))
     feedback = request.form.get('feedback', '').strip()
+    image_desc_fb = request.form.get('image_desc_feedback', '').strip()
+    residual_desc_fb = request.form.get('residual_desc_feedback', '').strip()
+    component_pred_fb = request.form.get('component_pred_feedback', '').strip()
 
-    if not (1 <= residual <= 5 and 1 <= reasoning <= 5 and 1 <= overall <= 5):
+    if not (1 <= image_desc <= 5 and 1 <= residual_desc <= 5 and 1 <= component_pred <= 5):
         return redirect(url_for('analysis_eval', galaxy_name=galaxy_name))
 
     db.execute('''
-        INSERT INTO a_evaluations (user_id, galaxy_id, residual_desc_rating, reasoning_rating, overall_rating, feedback, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+        INSERT INTO a_evaluations (user_id, galaxy_id, image_desc_rating, residual_desc_rating, component_pred_rating,
+                                   feedback, image_desc_feedback, residual_desc_feedback, component_pred_feedback, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
         ON CONFLICT(user_id, galaxy_id) DO UPDATE SET
+            image_desc_rating=excluded.image_desc_rating,
             residual_desc_rating=excluded.residual_desc_rating,
-            reasoning_rating=excluded.reasoning_rating,
-            overall_rating=excluded.overall_rating,
+            component_pred_rating=excluded.component_pred_rating,
             feedback=excluded.feedback,
+            image_desc_feedback=excluded.image_desc_feedback,
+            residual_desc_feedback=excluded.residual_desc_feedback,
+            component_pred_feedback=excluded.component_pred_feedback,
             updated_at=datetime('now')
-    ''', (user_id, galaxy['id'], residual, reasoning, overall, feedback))
+    ''', (user_id, galaxy['id'], image_desc, residual_desc, component_pred, feedback, image_desc_fb, residual_desc_fb, component_pred_fb))
     db.commit()
 
     return redirect(url_for('analysis_eval', galaxy_name=galaxy_name))
@@ -590,7 +676,7 @@ def analysis_statistics():
     galaxies = []
     for g in raw_galaxies:
         evals = db.execute('''
-            SELECT residual_desc_rating, reasoning_rating, overall_rating, feedback,
+            SELECT image_desc_rating, residual_desc_rating, component_pred_rating, feedback,
                    u.username
             FROM a_evaluations e JOIN users u ON e.user_id = u.id
             WHERE e.galaxy_id = ?
@@ -599,21 +685,21 @@ def analysis_statistics():
 
         total = g['total_evals']
         if total > 0:
+            avg_img = sum(e['image_desc_rating'] for e in evals) / total
             avg_res = sum(e['residual_desc_rating'] for e in evals) / total
-            avg_rea = sum(e['reasoning_rating'] for e in evals) / total
-            avg_ovr = sum(e['overall_rating'] for e in evals) / total
-            std_ovr = stats_mod.stdev([e['overall_rating'] for e in evals]) if total > 1 else 0
+            avg_comp = sum(e['component_pred_rating'] for e in evals) / total
+            std_comp = stats_mod.stdev([e['component_pred_rating'] for e in evals]) if total > 1 else 0
         else:
-            avg_res = avg_rea = avg_ovr = std_ovr = 0
+            avg_img = avg_res = avg_comp = std_comp = 0
 
         galaxies.append({
             'galaxy_name': g['galaxy_name'],
             'sort_order': g['sort_order'],
             'total_evals': total,
+            'avg_img': round(avg_img, 1),
             'avg_res': round(avg_res, 1),
-            'avg_rea': round(avg_rea, 1),
-            'avg_ovr': round(avg_ovr, 1),
-            'std_ovr': round(std_ovr, 1),
+            'avg_comp': round(avg_comp, 1),
+            'std_comp': round(std_comp, 1),
             'evals': evals,
         })
 
@@ -631,15 +717,15 @@ def analysis_statistics():
     user_summary = []
     for u in users:
         u_evals = db.execute('''
-            SELECT residual_desc_rating, reasoning_rating, overall_rating
+            SELECT image_desc_rating, residual_desc_rating, component_pred_rating
             FROM a_evaluations WHERE user_id = ?
         ''', (u['id'],)).fetchall()
         if u_evals:
             user_summary.append({
                 'username': u['username'],
                 'count': len(u_evals),
-                'avg_overall': round(sum(e['overall_rating'] for e in u_evals) / len(u_evals), 1),
-                'dist': {i: sum(1 for e in u_evals if e['overall_rating'] == i) for i in range(1, 6)},
+                'avg_overall': round(sum(e['component_pred_rating'] for e in u_evals) / len(u_evals), 1),
+                'dist': {i: sum(1 for e in u_evals if e['component_pred_rating'] == i) for i in range(1, 6)},
             })
 
     return render_template('analysis_stats.html',

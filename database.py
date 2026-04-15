@@ -76,10 +76,13 @@ def init_db(app):
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL REFERENCES users(id),
                 galaxy_id INTEGER NOT NULL REFERENCES a_galaxies(id),
-                residual_desc_rating INTEGER NOT NULL,
-                reasoning_rating INTEGER NOT NULL,
-                overall_rating INTEGER NOT NULL,
+                image_desc_rating INTEGER NOT NULL DEFAULT 0,
+                residual_desc_rating INTEGER NOT NULL DEFAULT 0,
+                component_pred_rating INTEGER NOT NULL DEFAULT 0,
                 feedback TEXT DEFAULT '',
+                image_desc_feedback TEXT DEFAULT '',
+                residual_desc_feedback TEXT DEFAULT '',
+                component_pred_feedback TEXT DEFAULT '',
                 created_at TEXT DEFAULT (datetime('now')),
                 updated_at TEXT DEFAULT (datetime('now')),
                 UNIQUE(user_id, galaxy_id)
@@ -103,3 +106,19 @@ def init_db(app):
             db.commit()
         except sqlite3.OperationalError:
             pass  # Column already exists
+
+        # Migration: add missing rating columns to a_evaluations
+        for col in ('image_desc_rating', 'residual_desc_rating', 'component_pred_rating'):
+            try:
+                db.execute(f"ALTER TABLE a_evaluations ADD COLUMN {col} INTEGER DEFAULT 0")
+                db.commit()
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+
+        # Migration: add per-dimension feedback columns to a_evaluations
+        for col in ('image_desc_feedback', 'residual_desc_feedback', 'component_pred_feedback'):
+            try:
+                db.execute(f"ALTER TABLE a_evaluations ADD COLUMN {col} TEXT DEFAULT ''")
+                db.commit()
+            except sqlite3.OperationalError:
+                pass  # Column already exists

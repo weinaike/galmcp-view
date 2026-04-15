@@ -1,0 +1,109 @@
+/* === Tour Guide Overlay & Tooltip === */
+
+.tour-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9998;
+    pointer-events: auto;
+    transition: opacity 0.3s;
+}
+
+.tour-overlay.hidden {
+    display: none;
+}
+
+.tour-highlight {
+    position: relative;
+    z-index: 9999 !important;
+    box-shadow: 0 0 0 4px var(--accent), 0 0 20px rgba(88, 166, 255, 0.4) !important;
+    border-radius: var(--radius);
+}
+
+.tour-tooltip {
+    position: fixed;
+    z-index: 10000;
+    background: var(--bg-card);
+    border: 1px solid var(--accent);
+    border-radius: 10px;
+    padding: 16px 20px;
+    max-width: 360px;
+    min-width: 240px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    animation: tourFadeIn 0.25s ease-out;
+}
+
+@keyframes tourFadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.tour-tooltip-title {
+    font-weight: 600;
+    font-size: 0.95rem;
+    margin-bottom: 8px;
+    color: var(--accent);
+}
+
+.tour-tooltip-body {
+    font-size: 0.88rem;
+    color: var(--text);
+    line-height: 1.6;
+    margin-bottom: 14px;
+}
+
+.tour-tooltip-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.tour-step-indicator {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+}
+
+.tour-btns {
+    display: flex;
+    gap: 8px;
+}
+
+.tour-btn {
+    padding: 4px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-card);
+    color: var(--text);
+    font-size: 0.82rem;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.tour-btn:hover {
+    background: var(--bg-card-hover);
+}
+
+.tour-btn-primary {
+    background: #1f6feb;
+    border-color: #1f6feb;
+    color: #fff;
+}
+
+.tour-btn-primary:hover {
+    background: #388bfd;
+    border-color: #388bfd;
+}
+
+.tour-start-btn {
+    background: transparent;
+    color: var(--accent) !important;
+    border-color: var(--accent) !important;
+    font-weight: 700;
+    font-size: 0.85rem !important;
+    width: 26px;
+    height: 26px;
+    padding: 0 !important;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}

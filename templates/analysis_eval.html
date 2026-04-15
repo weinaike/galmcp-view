@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% block title %}{{ galaxy.galaxy_name }} - 残差图分析评价{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='analysis.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="eval-page">
+    <!-- Top bar -->
+    <div class="eval-topbar">
+        <a href="/analysis/" class="back-link">&larr; 返回列表</a>
+        <span class="eval-galaxy-name">{{ galaxy.galaxy_name }}</span>
+        <span class="eval-counter">{{ galaxy.sort_order }}/28</span>
+        <div class="eval-topbar-nav">
+            {% if prev_galaxy %}
+            <a href="/analysis/eval/{{ prev_galaxy }}" class="btn btn-sm">&larr; 上一个</a>
+            {% endif %}
+            {% if next_galaxy %}
+            <a href="/analysis/eval/{{ next_galaxy }}" class="btn btn-sm">下一个 &rarr;</a>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Main content: left (image + rating) | right (analysis) -->
+    <div class="eval-main">
+        <!-- Left column -->
+        <div class="eval-left">
+            <!-- Image -->
+            <div class="eval-image-section">
+                <img src="/analysis/image/{{ galaxy.image_path }}"
+                     alt="{{ galaxy.galaxy_name }} comparison"
+                     class="eval-image">
+            </div>
+
+            <!-- Rating -->
+            <div class="eval-rating-section">
+                <div class="rating-note">
+                    评分说明：请重点关注AI分析的第一部分（原图与残差图描述）和第二部分（成分预测），第三部分仅作参考，无需纳入评分。
+                </div>
+                <form method="POST" action="/analysis/eval/{{ galaxy.galaxy_name }}/rate" id="rate-form">
+                    <div class="rating-vertical">
+                        <!-- Dimension 1: 原图理解 -->
+                        <div class="rating-dimension">
+                            <div class="rating-dim-left">
+                                <label>原图理解评价</label>
+                                <div class="star-group" data-field="image_desc_rating">
+                                    {% for i in range(1, 6) %}
+                                    <input type="radio" name="image_desc_rating" value="{{ i }}" id="r1-{{ i }}"
+                                           {% if my_eval and my_eval.image_desc_rating == i %}checked{% endif %}>
+                                    <label for="r1-{{ i }}" class="star-label" title="{{ ['完全错误','大部分错误','部分正确','基本正确','完全正确'][i-1] }}">
+                                        {{ '★' }}
+                                    </label>
+                                    {% endfor %}
+                                    <span class="rating-hint" id="hint-r1">点击评分</span>
+                                </div>
+                            </div>
+                            <textarea name="image_desc_feedback" class="dim-feedback"
+                                      placeholder="建议语音输入法输入，意思到位就行，无需关注语句格式细节。"
+                                      rows="2">{{ my_eval.image_desc_feedback if my_eval else '' }}</textarea>
+                        </div>
+
+                        <!-- Dimension 2: 残差理解 -->
+                        <div class="rating-dimension">
+                            <div class="rating-dim-left">
+                                <label>残差理解评价</label>
+                                <div class="star-group" data-field="residual_desc_rating">
+                                    {% for i in range(1, 6) %}
+                                    <input type="radio" name="residual_desc_rating" value="{{ i }}" id="r2-{{ i }}"
+                                           {% if my_eval and my_eval.residual_desc_rating == i %}checked{% endif %}>
+                                    <label for="r2-{{ i }}" class="star-label" title="{{ ['完全错误','大部分错误','部分正确','基本正确','完全正确'][i-1] }}">
+                                        {{ '★' }}
+                                    </label>
+                                    {% endfor %}
+                                    <span class="rating-hint" id="hint-r2">点击评分</span>
+                                </div>
+                            </div>
+                            <textarea name="residual_desc_feedback" class="dim-feedback"
+                                      placeholder="建议语音输入法输入，意思到位就行，无需关注语句格式细节。"
+                                      rows="2">{{ my_eval.residual_desc_feedback if my_eval else '' }}</textarea>
+                        </div>
+
+                        <!-- Dimension 3: 成分预测 -->
+                        <div class="rating-dimension">
+                            <div class="rating-dim-left">
+                                <label>成分预测评价</label>
+                                <div class="star-group" data-field="component_pred_rating">
+                                    {% for i in range(1, 6) %}
+                                    <input type="radio" name="component_pred_rating" value="{{ i }}" id="r3-{{ i }}"
+                                           {% if my_eval and my_eval.component_pred_rating == i %}checked{% endif %}>
+                                    <label for="r3-{{ i }}" class="star-label" title="{{ ['完全错误','大部分错误','部分正确','基本正确','完全正确'][i-1] }}">
+                                        {{ '★' }}
+                                    </label>
+                                    {% endfor %}
+                                    <span class="rating-hint" id="hint-r3">点击评分</span>
+                                </div>
+                            </div>
+                            <textarea name="component_pred_feedback" class="dim-feedback"
+                                      placeholder="建议语音输入法输入，意思到位就行，无需关注语句格式细节。"
+                                      rows="2">{{ my_eval.component_pred_feedback if my_eval else '' }}</textarea>
+                        </div>
+                    </div>
+
+                    <div class="form-actions eval-actions">
+                        <button type="submit" class="btn btn-primary btn-full">保存评价</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Right column: AI analysis (Markdown rendered) -->
+        <div class="eval-right">
+            <div class="eval-right-header">AI 分析报告</div>
+            <div class="eval-right-body">
+                <div class="report-content">
+                    {{ analysis_html|safe }}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Star rating interaction
+document.querySelectorAll('.star-group').forEach(function(group) {
+    var radios = group.querySelectorAll('input[type="radio"]');
+    var labels = group.querySelectorAll('.star-label');
+    var hintId = 'hint-' + group.getAttribute('data-field').charAt(0) +
+                 (group.getAttribute('data-field') === 'image_desc_rating' ? '1' :
+                  group.getAttribute('data-field') === 'residual_desc_rating' ? '2' : '3');
+    var hint = document.getElementById(hintId);
+
+    function highlightStars(value) {
+        labels.forEach(function(label, idx) {
+            if (idx < value) {
+                label.classList.add('active');
+            } else {
+                label.classList.remove('active');
+            }
+        });
+    }
+
+    // Init from checked
+    radios.forEach(function(r, idx) {
+        if (r.checked) {
+            highlightStars(idx + 1);
+            if (hint) hint.textContent = labels[idx].getAttribute('title');
+        }
+    });
+
+    labels.forEach(function(label, idx) {
+        label.addEventListener('mouseenter', function() {
+            highlightStars(idx + 1);
+            if (hint) hint.textContent = label.getAttribute('title');
+        });
+        label.addEventListener('click', function() {
+            radios[idx].checked = true;
+            highlightStars(idx + 1);
+            if (hint) hint.textContent = label.getAttribute('title');
+        });
+    });
+
+    group.addEventListener('mouseleave', function() {
+        var checkedIdx = -1;
+        radios.forEach(function(r, i) { if (r.checked) checkedIdx = i; });
+        highlightStars(checkedIdx + 1);
+        if (hint) {
+            hint.textContent = checkedIdx >= 0 ? labels[checkedIdx].getAttribute('title') : '点击评分';
+        }
+    });
+});
+</script>
+{% endblock %}

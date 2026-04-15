@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}分析评价统计 - 星系拟合评价系统{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="header-bar">
+        <h2>残差图分析评价统计</h2>
+        <div class="header-actions">
+            <span class="meta">用户: {{ users|length }}人 | 样本: {{ galaxies|length }}个</span>
+            <a href="/analysis/" class="btn btn-sm">返回列表</a>
+        </div>
+    </div>
+
+    {# --- Summary Table --- #}
+    <table class="stats-table">
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>星系</th>
+                <th>评价数</th>
+                <th>原图理解均值</th>
+                <th>残差理解均值</th>
+                <th>成分预测均值</th>
+                <th>标准差</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for g in galaxies %}
+            <tr>
+                <td>{{ g.sort_order }}</td>
+                <td><a href="/analysis/eval/{{ g.galaxy_name }}">{{ g.galaxy_name }}</a></td>
+                <td>{{ g.total_evals }}</td>
+                <td>{{ g.avg_img if g.total_evals > 0 else '-' }}</td>
+                <td>{{ g.avg_res if g.total_evals > 0 else '-' }}</td>
+                <td>{{ g.avg_comp if g.total_evals > 0 else '-' }}</td>
+                <td>{{ g.std_comp if g.total_evals > 0 else '-' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    {# --- Completion Matrix --- #}
+    <h3 style="margin-top: 2rem;">完成度矩阵</h3>
+    <div class="matrix-wrapper">
+        <table class="matrix-table">
+            <thead>
+                <tr>
+                    <th>用户</th>
+                    {% for g in galaxies %}
+                    <th class="matrix-th">{{ g.galaxy_name }}</th>
+                    {% endfor %}
+                    <th>合计</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for u in users %}
+                <tr>
+                    <td>{{ u.username }}</td>
+                    {% for g in galaxies %}
+                    <td class="matrix-td {% if g.galaxy_name in matrix[u.username] %}cell-done{% else %}cell-empty{% endif %}">
+                        {% if g.galaxy_name in matrix[u.username] %}Y{% else %}-{% endif %}
+                    </td>
+                    {% endfor %}
+                    <td><strong>{{ matrix[u.username]|length }}</strong></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {# --- Per-user Summary --- #}
+    {% if user_summary %}
+    <h3 style="margin-top: 2rem;">用户评分摘要</h3>
+    <table class="stats-table">
+        <thead>
+            <tr>
+                <th>用户</th>
+                <th>已评数量</th>
+                <th>平均总体评分</th>
+                <th>1分</th>
+                <th>2分</th>
+                <th>3分</th>
+                <th>4分</th>
+                <th>5分</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for u in user_summary %}
+            <tr>
+                <td>{{ u.username }}</td>
+                <td>{{ u.count }}</td>
+                <td>{{ u.avg_overall }}</td>
+                <td>{{ u.dist.get(1, 0) }}</td>
+                <td>{{ u.dist.get(2, 0) }}</td>
+                <td>{{ u.dist.get(3, 0) }}</td>
+                <td>{{ u.dist.get(4, 0) }}</td>
+                <td>{{ u.dist.get(5, 0) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+
+    {# --- Detailed Evaluations --- #}
+    <h3 style="margin-top: 2rem;">详细评价记录</h3>
+    {% for g in galaxies %}
+    {% if g.evals %}
+    <div class="vote-detail-block">
+        <h4><a href="/analysis/eval/{{ g.galaxy_name }}">{{ g.galaxy_name }}</a></h4>
+        <table class="comp-table">
+            <thead>
+                <tr>
+                    <th>用户</th>
+                    <th>原图理解</th>
+                    <th>残差理解</th>
+                    <th>成分预测</th>
+                    <th>反馈</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for e in g.evals %}
+                <tr>
+                    <td>{{ e.username }}</td>
+                    <td>{{ e.image_desc_rating }}/5</td>
+                    <td>{{ e.residual_desc_rating }}/5</td>
+                    <td>{{ e.component_pred_rating }}/5</td>
+                    <td>{{ e.feedback or '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+    {% endfor %}
+</div>
+{% endblock %}

@@ -5,7 +5,7 @@
 <div class="container">
     <div class="header-bar">
         <div>
-            <a href="/" class="back-link">&larr; 返回列表</a>
+            <a href="/voting/" class="back-link">&larr; 返回列表</a>
             <h2>{{ galaxy_id }}</h2>
             <span class="meta">{{ sample.num_rounds }} 轮拟合</span>
             {% if has_analysis_report %}
@@ -23,9 +23,21 @@
     </div>
 
     {# --- S4G Real Components --- #}
-    {% if s4g_components %}
+    {% if s4g_components or has_comparison_png %}
     <div class="s4g-section">
-        <h3>S4G 真实成分</h3>
+        <h3>S4G 真实成分
+            {% if final_chi2 is not none %}
+            <span class="chi2-badge">&chi;&sup2;/&nu; = {{ '%.3f' | format(final_chi2) }}</span>
+            {% endif %}
+        </h3>
+        {% if has_comparison_png %}
+        <div class="round-image" style="margin-bottom: 1rem;">
+            <img src="/comparison-image/{{ galaxy_id }}"
+                 alt="{{ galaxy_id }} comparison"
+                 loading="lazy">
+        </div>
+        {% endif %}
+        {% if s4g_components %}
         {% for comp in s4g_components %}
         <div class="s4g-comp-row">
             <span class="s4g-type-badge">{{ comp.type }}</span>
@@ -35,15 +47,16 @@
             {% endfor %}
         </div>
         {% endfor %}
+        {% endif %}
     </div>
     {% endif %}
 
     {# --- Fitting Rounds (vertical layout) --- #}
     <div class="rounds-section">
         {% for r in rounds %}
-        <div class="round-card" data-round="{{ r.round_number }}" id="round-{{ r.round_number }}">
+        <div class="round-card{% if best_turn and r.timestamp_dir == best_turn %} best-turn-highlight{% endif %}" data-round="{{ r.round_number }}" data-timestamp="{{ r.timestamp_dir }}" id="round-{{ r.round_number }}">
             <div class="round-header">
-                <h3>轮次 {{ r.round_number }}</h3>
+                <h3>轮次 {{ r.round_number }}{% if best_turn and r.timestamp_dir == best_turn %} &#11088; AI推荐{% endif %}</h3>
                 <span class="round-meta">{{ r.timestamp_dir }}</span>
                 {% if r.chi_squared_nu is not none %}
                 <span class="chi2-badge">&chi;&sup2;/&nu; = {{ '%.3f' | format(r.chi_squared_nu) }}</span>

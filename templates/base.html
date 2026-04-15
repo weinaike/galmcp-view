@@ -5,19 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}星系拟合评价系统{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='tour.css') }}">
     {% block head %}{% endblock %}
 </head>
 <body>
     <nav>
         <div class="nav-brand">
-            <a href="/">星系拟合评价系统</a>
+            <a href="/voting/">星系拟合评价系统</a>
         </div>
         <div class="nav-links">
             {% if session.get('user_id') %}
-            <a href="/">残差图评价</a>
+            {# <a href="/analysis/">残差图评价</a> #}
             <a href="/voting/">拟合投票</a>
             <a href="/statistics">投票统计</a>
             <span class="nav-user">用户: {{ session.username }}</span>
+            <button type="button" class="btn btn-sm tour-start-btn" onclick="startTour()" title="使用指引">?</button>
             <form method="POST" action="/logout" class="inline-form">
                 <button type="submit" class="btn btn-sm">退出</button>
             </form>
@@ -28,5 +30,6 @@
         {% block content %}{% endblock %}
     </main>
     <script src="{{ url_for('static', filename='app.js') }}"></script>
+    <script src="{{ url_for('static', filename='tour.js') }}"></script>
 </body>
 </html>

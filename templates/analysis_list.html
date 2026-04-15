@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}分析评价 - 星系拟合评价系统{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="header-bar">
+        <h2>残差图分析评价</h2>
+        <div class="header-actions">
+            <span class="progress-text">进度: {{ evaluated }}/{{ total }} 已评价</span>
+            <a href="/analysis/statistics" class="btn btn-sm">统计</a>
+        </div>
+    </div>
+
+    <div class="filter-bar">
+        <button class="filter-btn active" onclick="filterAnalysis('all')">全部 ({{ total }})</button>
+        <button class="filter-btn" onclick="filterAnalysis('evaluated')">已评价 ({{ evaluated }})</button>
+        <button class="filter-btn" onclick="filterAnalysis('pending')">未评价 ({{ total - evaluated }})</button>
+    </div>
+
+    <table class="sample-table">
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>星系</th>
+                <th>我的状态</th>
+                <th>我的评分</th>
+                <th>平均评分</th>
+                <th>评价人数</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for g in galaxies %}
+            <tr class="analysis-row" data-evaluated="{{ 'true' if g.component_pred_rating is not none else 'false' }}">
+                <td>{{ g.sort_order }}</td>
+                <td class="galaxy-id">{{ g.galaxy_name }}</td>
+                <td>
+                    {% if g.component_pred_rating is not none %}
+                        <span class="badge badge-done">已评价</span>
+                    {% else %}
+                        <span class="badge badge-pending">未评价</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if g.component_pred_rating is not none %}
+                        成分预测 {{ g.component_pred_rating }}/5
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+                <td>
+                    {% if g.avg_overall %}
+                        {{ g.avg_overall }}
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+                <td>{{ g.total_evals }}人</td>
+                <td><a href="/analysis/eval/{{ g.galaxy_name }}" class="btn btn-sm">评价</a></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<script>
+function filterAnalysis(type) {
+    document.querySelectorAll('.filter-btn').forEach(function(btn) {
+        btn.classList.remove('active');
+    });
+    event.target.classList.add('active');
+
+    document.querySelectorAll('.analysis-row').forEach(function(row) {
+        var evaluated = row.getAttribute('data-evaluated');
+        if (type === 'all') {
+            row.style.display = '';
+        } else if (type === 'evaluated') {
+            row.style.display = evaluated === 'true' ? '' : 'none';
+        } else {
+            row.style.display = evaluated === 'false' ? '' : 'none';
+        }
+    });
+}
+</script>
+{% endblock %}
