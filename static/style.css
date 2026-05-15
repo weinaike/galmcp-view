@@ -69,6 +69,18 @@ nav {
     color: var(--green);
     font-size: 0.9rem;
 }
+.nav-source-select {
+    background: var(--bg-dark);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 4px 8px;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+.nav-source-select:focus {
+    outline: 2px solid var(--accent);
+}
 
 /* === Buttons === */
 .btn {

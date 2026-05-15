@@ -13,12 +13,17 @@ def parse_summary(md_text):
         components: list of dicts [{type, x, y, mag, re, n, ba, pa}, ...]
         chi_squared_nu: float or None
     """
-    result = {'components': [], 'chi_squared_nu': None}
+    result = {'components': [], 'chi_squared_nu': None, 'bic': None}
 
     # Extract Chi^2/nu
     chi_match = re.search(r'Chi\^2/nu\s*=\s*([\d.]+)', md_text)
     if chi_match:
         result['chi_squared_nu'] = float(chi_match.group(1))
+
+    # Extract BIC
+    bic_match = re.search(r'\|\s*BIC\s*\|\s*([\d.eE+\-]+)\s*\|', md_text)
+    if bic_match:
+        result['bic'] = float(bic_match.group(1))
 
     # Extract components from "## Fit log Content" section
     # Component types and their parameter columns (after x, y position):
@@ -128,7 +133,7 @@ def parse_summary(md_text):
     return result
 
 
-def scan_galaxies(base_path, db):
+def scan_galaxies(source_label, base_path, db):
     """Scan base_path for galaxy directories with archives and populate DB.
 
     For each directory containing an archives/ subdirectory:
@@ -161,26 +166,27 @@ def scan_galaxies(base_path, db):
 
         # Upsert sample
         db.execute(
-            'INSERT INTO samples (galaxy_id, num_rounds, last_scanned) '
-            'VALUES (?, ?, datetime(\'now\')) '
-            'ON CONFLICT(galaxy_id) DO UPDATE SET '
+            'INSERT INTO samples (source, galaxy_id, num_rounds, last_scanned) '
+            'VALUES (?, ?, ?, datetime(\'now\')) '
+            'ON CONFLICT(source, galaxy_id) DO UPDATE SET '
             'num_rounds=excluded.num_rounds, last_scanned=excluded.last_scanned',
-            (galaxy_id, num_rounds)
+            (source_label, galaxy_id, num_rounds)
         )
         sample = db.execute(
-            'SELECT id FROM samples WHERE galaxy_id = ?', (galaxy_id,)
+            'SELECT id FROM samples WHERE source = ? AND galaxy_id = ?',
+            (source_label, galaxy_id)
         ).fetchone()
 
         # Process each round
         for round_num, ts_dir in enumerate(timestamp_dirs, 1):
             round_path = os.path.join(archives_dir, ts_dir)
 
-            # Find PNG file
-            png_files = glob.glob(os.path.join(round_path, '*_galfit_comparison.png'))
+            # Find PNG file (matches both *_galfit_comparison.png and galfit_comparison.png)
+            png_files = glob.glob(os.path.join(round_path, '*galfit_comparison.png'))
             png_path = png_files[0] if png_files else None
 
             # Find and parse summary file
-            summary_files = glob.glob(os.path.join(round_path, '*_galfit_summary.md'))
+            summary_files = glob.glob(os.path.join(round_path, '*galfit_summary.md'))
             chi_squared_nu = None
             components_json = None
 
@@ -190,6 +196,7 @@ def scan_galaxies(base_path, db):
                         md_text = f.read()
                     parsed = parse_summary(md_text)
                     chi_squared_nu = parsed['chi_squared_nu']
+                    bic = parsed.get('bic')
                     components_json = json.dumps(parsed['components'])
                 except Exception as e:
                     print(f"Warning: failed to parse {summary_files[0]}: {e}")
@@ -198,15 +205,16 @@ def scan_galaxies(base_path, db):
 
             db.execute(
                 'INSERT INTO rounds (sample_id, round_number, timestamp_dir, png_path, '
-                'chi_squared_nu, components_json, summary_path) '
-                'VALUES (?, ?, ?, ?, ?, ?, ?) '
+                'chi_squared_nu, bic, components_json, summary_path) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?, ?) '
                 'ON CONFLICT(sample_id, round_number) DO UPDATE SET '
                 'timestamp_dir=excluded.timestamp_dir, png_path=excluded.png_path, '
                 'chi_squared_nu=excluded.chi_squared_nu, '
+                'bic=excluded.bic, '
                 'components_json=excluded.components_json, '
                 'summary_path=excluded.summary_path',
                 (sample['id'], round_num, ts_dir, png_path,
-                 chi_squared_nu, components_json, summary_path)
+                 chi_squared_nu, bic, components_json, summary_path)
             )
 
     db.commit()

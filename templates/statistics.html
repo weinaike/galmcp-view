@@ -26,7 +26,7 @@
         <tbody>
             {% for s in samples %}
             <tr>
-                <td><a href="/sample/{{ s.galaxy_id }}">{{ s.galaxy_id }}</a></td>
+                <td><a href="/sample/{{ current_source }}/{{ s.galaxy_id }}">{{ s.galaxy_id }}</a></td>
                 <td>{{ s.num_rounds }}</td>
                 <td>{{ s.total_votes }}</td>
                 <td>{{ s.perfect_count }}</td>
@@ -72,7 +72,7 @@
     {% for s in samples %}
     {% if vote_data[s.galaxy_id].votes %}
     <div class="vote-detail-block">
-        <h4><a href="/sample/{{ s.galaxy_id }}">{{ s.galaxy_id }}</a></h4>
+        <h4><a href="/sample/{{ current_source }}/{{ s.galaxy_id }}">{{ s.galaxy_id }}</a></h4>
         <table class="comp-table">
             <thead>
                 <tr>

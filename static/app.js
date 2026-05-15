@@ -1,52 +1,51 @@
 /* === Galaxy Fitting Label Tool - Client-side JS === */
 
-// Toggle log section visibility, lazy-load content on first open
-function toggleLog(btn, galaxyId, timestampDir) {
-    var roundCard = btn.closest('.round-card');
-    var logSection = roundCard.querySelector('.log-section:not(.comp-analysis-section)');
-    if (!logSection) return;
+// --- Log Modal ---
 
-    var isHidden = logSection.style.display === 'none';
+function openLogModal(source, galaxyId, timestampDir) {
+    var modal = document.getElementById('log-modal');
+    var body = document.getElementById('log-body');
+    var title = document.getElementById('log-modal-title');
+    if (!modal || !body) return;
+    title.textContent = '日志 — ' + galaxyId + ' / ' + timestampDir;
+    body.textContent = '加载中…';
+    modal.classList.add('active');
 
-    if (isHidden) {
-        // First time opening: fetch content if not already loaded
-        var preEl = logSection.querySelector('.log-content');
-        if (preEl && !preEl.textContent) {
-            fetch('/summary/' + galaxyId + '/' + timestampDir)
-                .then(function(resp) { return resp.text(); })
-                .then(function(text) { preEl.textContent = text; })
-                .catch(function() { preEl.textContent = '加载日志失败'; });
-        }
-        logSection.style.display = 'block';
-        btn.innerHTML = '&#128196; 收起日志';
-    } else {
-        logSection.style.display = 'none';
-        btn.innerHTML = '&#128196; 查看日志';
-    }
+    fetch('/summary/' + source + '/' + galaxyId + '/' + timestampDir)
+        .then(function(resp) { return resp.text(); })
+        .then(function(text) { body.textContent = text; })
+        .catch(function() { body.textContent = '加载日志失败'; });
 }
 
-// Toggle component analysis section visibility, lazy-load content on first open
-function toggleCompAnalysis(btn, galaxyId, timestampDir) {
-    var roundCard = btn.closest('.round-card');
-    var section = roundCard.querySelector('.comp-analysis-section');
-    if (!section) return;
+function closeLogModal(e) {
+    var modal = document.getElementById('log-modal');
+    if (!modal) return;
+    if (e && e.target !== modal && !e.target.classList.contains('modal-close')) return;
+    modal.classList.remove('active');
+}
 
-    var isHidden = section.style.display === 'none';
+// --- Component Analysis Modal ---
 
-    if (isHidden) {
-        var contentEl = section.querySelector('.comp-analysis-content');
-        if (contentEl && !contentEl.innerHTML) {
-            fetch('/component-analysis/' + galaxyId + '/' + timestampDir)
-                .then(function(resp) { return resp.text(); })
-                .then(function(html) { contentEl.innerHTML = html; })
-                .catch(function() { contentEl.innerHTML = '<p style="color:var(--red)">加载成分分析失败</p>'; });
-        }
-        section.style.display = 'block';
-        btn.innerHTML = '&#128269; 收起成分分析';
-    } else {
-        section.style.display = 'none';
-        btn.innerHTML = '&#128269; 显示成分分析';
-    }
+function openCompAnalysisModal(source, galaxyId, timestampDir) {
+    var modal = document.getElementById('comp-modal');
+    var body = document.getElementById('comp-body');
+    var title = document.getElementById('comp-modal-title');
+    if (!modal || !body) return;
+    title.textContent = '成分分析 — ' + galaxyId + ' / ' + timestampDir;
+    body.innerHTML = '<p style="color:var(--text-muted)">加载中…</p>';
+    modal.classList.add('active');
+
+    fetch('/component-analysis/' + source + '/' + galaxyId + '/' + timestampDir)
+        .then(function(resp) { return resp.text(); })
+        .then(function(html) { body.innerHTML = html; })
+        .catch(function() { body.innerHTML = '<p style="color:var(--red)">加载成分分析失败</p>'; });
+}
+
+function closeCompAnalysisModal(e) {
+    var modal = document.getElementById('comp-modal');
+    if (!modal) return;
+    if (e && e.target !== modal && !e.target.classList.contains('modal-close')) return;
+    modal.classList.remove('active');
 }
 
 // Toggle form sections based on accept/reject selection
@@ -127,14 +126,14 @@ function filterSamples(type) {
 
 // --- Analysis Report Modal ---
 
-function openReportModal(galaxyId) {
+function openReportModal(source, galaxyId) {
     var modal = document.getElementById('report-modal');
     var body = document.getElementById('report-body');
     if (!modal || !body) return;
     body.innerHTML = '<p style="color:var(--text-muted)">加载中…</p>';
     modal.classList.add('active');
 
-    fetch('/analysis-report/' + galaxyId)
+    fetch('/analysis-report/' + source + '/' + galaxyId)
         .then(function(resp) { return resp.text(); })
         .then(function(html) { body.innerHTML = html; })
         .catch(function() { body.innerHTML = '<p style="color:var(--red)">加载报告失败</p>'; });

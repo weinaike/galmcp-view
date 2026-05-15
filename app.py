@@ -81,7 +81,18 @@ def _get_s4g_components(galaxy_id):
 
 app = Flask(__name__)
 app.config.from_object(Config)
-base_path = app.config['GALFIT_BASE_PATH']
+
+
+def _get_source_path(source_label):
+    sources = app.config['GALFIT_SOURCES']
+    if source_label not in sources:
+        abort(404)
+    return sources[source_label]
+
+
+@app.context_processor
+def inject_sources():
+    return {'sources': app.config['GALFIT_SOURCES']}
 
 
 def _load_final_chi2():
@@ -96,7 +107,7 @@ def _load_final_chi2():
         return {}
 
 
-def _find_analysis_report_path(galaxy_id):
+def _find_analysis_report_path(galaxy_id, base_path):
 
     galaxy_dir = os.path.join(base_path, galaxy_id)
     try:
@@ -111,10 +122,10 @@ def _find_analysis_report_path(galaxy_id):
     return os.path.join(galaxy_dir, candidates[0])
 
 
-def _parse_best_turn(galaxy_id):
+def _parse_best_turn(galaxy_id, base_path):
     """Extract best_turn timestamp_dir from analysis_report.md JSON block."""
     import re
-    report_path = _find_analysis_report_path(galaxy_id)
+    report_path = _find_analysis_report_path(galaxy_id, base_path)
     if not report_path:
         return None
     try:
@@ -170,42 +181,63 @@ def logout():
 # --- Sample list ---
 
 @app.route('/voting/')
+@app.route('/voting/<source>/')
 @login_required
-def sample_list():
+def sample_list(source=None):
+    sources = app.config['GALFIT_SOURCES']
+    if source is None:
+        first = next(iter(sources))
+        return redirect(url_for('sample_list', source=first))
+    if source not in sources:
+        abort(404)
+
     db = get_db()
     user_id = session['user_id']
 
     samples = db.execute('''
-        SELECT s.galaxy_id, s.num_rounds,
+        SELECT s.galaxy_id, s.num_rounds, s.source,
                v.is_perfect, v.best_round, v.reason, v.comments,
                (SELECT COUNT(*) FROM votes WHERE sample_id = s.id) AS total_votes
         FROM samples s
         LEFT JOIN votes v ON v.sample_id = s.id AND v.user_id = ?
+        WHERE s.source = ?
         ORDER BY s.galaxy_id
-    ''', (user_id,)).fetchall()
+    ''', (user_id, source)).fetchall()
 
     total = len(samples)
     evaluated = sum(1 for s in samples if s['is_perfect'] is not None)
 
     return render_template('sample_list.html',
-                           samples=samples, total=total, evaluated=evaluated)
+                           samples=samples, total=total, evaluated=evaluated,
+                           current_source=source)
 
 
 # --- Sample detail ---
 
 @app.route('/sample/<galaxy_id>')
 @login_required
-def sample_detail(galaxy_id):
+def sample_detail_legacy(galaxy_id):
+    db = get_db()
+    row = db.execute('SELECT source FROM samples WHERE galaxy_id = ?', (galaxy_id,)).fetchone()
+    if not row:
+        abort(404)
+    return redirect(url_for('sample_detail', source=row['source'], galaxy_id=galaxy_id))
+
+
+@app.route('/sample/<source>/<galaxy_id>')
+@login_required
+def sample_detail(source, galaxy_id):
+    base_path = _get_source_path(source)
     db = get_db()
     user_id = session['user_id']
 
-    sample = db.execute('SELECT * FROM samples WHERE galaxy_id = ?',
-                        (galaxy_id,)).fetchone()
+    sample = db.execute('SELECT * FROM samples WHERE source = ? AND galaxy_id = ?',
+                        (source, galaxy_id)).fetchone()
     if not sample:
         abort(404)
 
     # Check if analysis report exists
-    report_path = _find_analysis_report_path(galaxy_id)
+    report_path = _find_analysis_report_path(galaxy_id, base_path)
     has_analysis_report = report_path is not None
 
     # Check for *_comparison.png in galaxy directory
@@ -220,7 +252,7 @@ def sample_detail(galaxy_id):
         pass
 
     rounds = db.execute('''
-        SELECT id, round_number, timestamp_dir, png_path, chi_squared_nu, components_json, summary_path
+        SELECT id, round_number, timestamp_dir, png_path, chi_squared_nu, bic, components_json, summary_path
         FROM rounds
         WHERE sample_id = ?
         ORDER BY round_number
@@ -243,7 +275,7 @@ def sample_detail(galaxy_id):
         comp_analysis_file = None
         try:
             comp_analysis_file = next(
-                (f for f in os.listdir(archive_dir) if f.endswith('_component_analysis.md')),
+                (f for f in os.listdir(archive_dir) if 'component_analysis' in f and f.endswith('.md')),
                 None
             )
         except OSError:
@@ -257,6 +289,7 @@ def sample_detail(galaxy_id):
             'has_comp_analysis': comp_analysis_file is not None,
             'comp_analysis_path': os.path.join(archive_dir, comp_analysis_file) if comp_analysis_file else '',
             'chi_squared_nu': r['chi_squared_nu'],
+            'bic': r['bic'],
             'fit_log': fit_log_content,
         })
 
@@ -267,18 +300,19 @@ def sample_detail(galaxy_id):
 
     prev_sample = db.execute('''
         SELECT s.galaxy_id FROM samples s
-        WHERE s.galaxy_id < ?
+        WHERE s.source = ? AND s.galaxy_id < ?
         ORDER BY s.galaxy_id DESC LIMIT 1
-    ''', (galaxy_id,)).fetchone()
+    ''', (source, galaxy_id)).fetchone()
 
     next_sample = db.execute('''
         SELECT s.galaxy_id FROM samples s
-        WHERE s.galaxy_id > ? AND s.id NOT IN
+        WHERE s.source = ? AND s.galaxy_id > ? AND s.id NOT IN
             (SELECT sample_id FROM votes WHERE user_id = ?)
         ORDER BY s.galaxy_id LIMIT 1
-    ''', (galaxy_id, user_id)).fetchone()
+    ''', (source, galaxy_id, user_id)).fetchone()
 
     return render_template('sample_detail.html',
+                           source=source,
                            galaxy_id=galaxy_id,
                            sample=sample,
                            rounds=rounds_data,
@@ -286,20 +320,20 @@ def sample_detail(galaxy_id):
                            has_analysis_report=has_analysis_report,
                            has_comparison_png=comparison_png is not None,
                            s4g_components=_get_s4g_components(galaxy_id),
-                           best_turn=_parse_best_turn(galaxy_id),
+                           best_turn=_parse_best_turn(galaxy_id, base_path),
                            final_chi2=_load_final_chi2().get(galaxy_id),
                            prev_sample=prev_sample['galaxy_id'] if prev_sample else None,
                            next_sample=next_sample['galaxy_id'] if next_sample else None)
 
 
-@app.route('/sample/<galaxy_id>/vote', methods=['POST'])
+@app.route('/sample/<source>/<galaxy_id>/vote', methods=['POST'])
 @login_required
-def submit_vote(galaxy_id):
+def submit_vote(source, galaxy_id):
     db = get_db()
     user_id = session['user_id']
 
-    sample = db.execute('SELECT id FROM samples WHERE galaxy_id = ?',
-                        (galaxy_id,)).fetchone()
+    sample = db.execute('SELECT id FROM samples WHERE source = ? AND galaxy_id = ?',
+                        (source, galaxy_id)).fetchone()
     if not sample:
         abort(404)
 
@@ -310,7 +344,7 @@ def submit_vote(galaxy_id):
 
     if is_perfect == 1:
         if not best_round:
-            return redirect(url_for('sample_detail', galaxy_id=galaxy_id))
+            return redirect(url_for('sample_detail', source=source, galaxy_id=galaxy_id))
         best_round = int(best_round)
     else:
         best_round = None
@@ -328,20 +362,20 @@ def submit_vote(galaxy_id):
     ''', (user_id, sample['id'], is_perfect, best_round, reason, comments))
     db.commit()
 
-    return redirect(url_for('sample_detail', galaxy_id=galaxy_id))
+    return redirect(url_for('sample_detail', source=source, galaxy_id=galaxy_id))
 
 
 # --- Image serving ---
 
-@app.route('/image/<galaxy_id>/<timestamp_dir>')
+@app.route('/image/<source>/<galaxy_id>/<timestamp_dir>')
 @login_required
-def serve_image(galaxy_id, timestamp_dir):
+def serve_image(source, galaxy_id, timestamp_dir):
     db = get_db()
     row = db.execute('''
         SELECT r.png_path FROM rounds r
         JOIN samples s ON r.sample_id = s.id
-        WHERE s.galaxy_id = ? AND r.timestamp_dir = ?
-    ''', (galaxy_id, timestamp_dir)).fetchone()
+        WHERE s.source = ? AND s.galaxy_id = ? AND r.timestamp_dir = ?
+    ''', (source, galaxy_id, timestamp_dir)).fetchone()
 
     if not row or not row['png_path']:
         abort(404)
@@ -353,10 +387,10 @@ def serve_image(galaxy_id, timestamp_dir):
     return send_file(png_path, mimetype='image/png')
 
 
-@app.route('/comparison-image/<galaxy_id>')
+@app.route('/comparison-image/<source>/<galaxy_id>')
 @login_required
-def serve_comparison_image(galaxy_id):
-    galaxy_dir = os.path.join(base_path, galaxy_id)
+def serve_comparison_image(source, galaxy_id):
+    galaxy_dir = os.path.join(_get_source_path(source), galaxy_id)
     try:
         filename = next(
             (f for f in os.listdir(galaxy_dir) if f.endswith('_comparison.png')),
@@ -371,10 +405,10 @@ def serve_comparison_image(galaxy_id):
 
 # --- Analysis report serving ---
 
-@app.route('/analysis-report/<galaxy_id>')
+@app.route('/analysis-report/<source>/<galaxy_id>')
 @login_required
-def serve_analysis_report(galaxy_id):
-    report_path = _find_analysis_report_path(galaxy_id)
+def serve_analysis_report(source, galaxy_id):
+    report_path = _find_analysis_report_path(galaxy_id, _get_source_path(source))
     if not report_path or not os.path.isfile(report_path):
         abort(404)
     with open(report_path, 'r', encoding='utf-8') as f:
@@ -385,15 +419,15 @@ def serve_analysis_report(galaxy_id):
 
 # --- Summary log serving ---
 
-@app.route('/summary/<galaxy_id>/<timestamp_dir>')
+@app.route('/summary/<source>/<galaxy_id>/<timestamp_dir>')
 @login_required
-def serve_summary(galaxy_id, timestamp_dir):
+def serve_summary(source, galaxy_id, timestamp_dir):
     db = get_db()
     row = db.execute('''
         SELECT r.summary_path, r.timestamp_dir FROM rounds r
         JOIN samples s ON r.sample_id = s.id
-        WHERE s.galaxy_id = ? AND r.timestamp_dir = ?
-    ''', (galaxy_id, timestamp_dir)).fetchone()
+        WHERE s.source = ? AND s.galaxy_id = ? AND r.timestamp_dir = ?
+    ''', (source, galaxy_id, timestamp_dir)).fetchone()
 
     if not row:
         abort(404)
@@ -410,14 +444,14 @@ def serve_summary(galaxy_id, timestamp_dir):
 
 # --- Component analysis serving ---
 
-@app.route('/component-analysis/<galaxy_id>/<timestamp_dir>')
+@app.route('/component-analysis/<source>/<galaxy_id>/<timestamp_dir>')
 @login_required
-def serve_component_analysis(galaxy_id, timestamp_dir):
-    archive_dir = os.path.join(app.config['GALFIT_BASE_PATH'],
+def serve_component_analysis(source, galaxy_id, timestamp_dir):
+    archive_dir = os.path.join(_get_source_path(source),
                                galaxy_id, 'archives', timestamp_dir)
     try:
         filename = next(
-            (f for f in os.listdir(archive_dir) if f.endswith('_component_analysis.md')),
+            (f for f in os.listdir(archive_dir) if 'component_analysis' in f and f.endswith('.md')),
             None
         )
     except OSError:
@@ -437,8 +471,16 @@ def serve_component_analysis(galaxy_id, timestamp_dir):
 # --- Statistics ---
 
 @app.route('/statistics')
+@app.route('/statistics/<source>')
 @login_required
-def statistics():
+def statistics(source=None):
+    sources = app.config['GALFIT_SOURCES']
+    if source is None:
+        first = next(iter(sources))
+        return redirect(url_for('statistics', source=first))
+    if source not in sources:
+        abort(404)
+
     db = get_db()
 
     users = db.execute('SELECT id, username FROM users ORDER BY username').fetchall()
@@ -448,8 +490,9 @@ def statistics():
                (SELECT COUNT(*) FROM votes WHERE sample_id = s.id) AS total_votes,
                (SELECT COUNT(*) FROM votes WHERE sample_id = s.id AND is_perfect = 1) AS perfect_count
         FROM samples s
+        WHERE s.source = ?
         ORDER BY s.galaxy_id
-    ''').fetchall()
+    ''', (source,)).fetchall()
 
     # Build enriched sample data
     samples = []
@@ -505,13 +548,14 @@ def statistics():
         user_votes = db.execute(
             'SELECT s.galaxy_id FROM votes v '
             'JOIN samples s ON v.sample_id = s.id '
-            'WHERE v.user_id = ?', (u['id'],)
+            'WHERE v.user_id = ? AND s.source = ?', (u['id'], source)
         ).fetchall()
         matrix[u['username']] = [v['galaxy_id'] for v in user_votes]
 
     return render_template('statistics.html',
                            users=users, samples=samples,
-                           vote_data=vote_data, matrix=matrix)
+                           vote_data=vote_data, matrix=matrix,
+                           current_source=source)
 
 
 # --- Analysis Evaluation: Data Initialization ---
@@ -739,7 +783,8 @@ def analysis_statistics():
 @login_required
 def rescan():
     db = get_db()
-    scan_galaxies(app.config['GALFIT_BASE_PATH'], db)
+    for label, path in app.config['GALFIT_SOURCES'].items():
+        scan_galaxies(label, path, db)
     return redirect(url_for('sample_list'))
 
 
@@ -752,6 +797,7 @@ if __name__ == '__main__':
     init_db(app)
     with app.app_context():
         db = get_db()
-        scan_galaxies(app.config['GALFIT_BASE_PATH'], db)
+        for label, path in app.config['GALFIT_SOURCES'].items():
+            scan_galaxies(label, path, db)
         init_analysis_data(app)
     app.run(debug=True, host='0.0.0.0', port=35091)

@@ -31,9 +31,11 @@ def init_db(app):
 
             CREATE TABLE IF NOT EXISTS samples (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                galaxy_id TEXT NOT NULL UNIQUE,
+                source TEXT NOT NULL DEFAULT 'default',
+                galaxy_id TEXT NOT NULL,
                 num_rounds INTEGER NOT NULL DEFAULT 0,
-                last_scanned TEXT DEFAULT (datetime('now'))
+                last_scanned TEXT DEFAULT (datetime('now')),
+                UNIQUE(source, galaxy_id)
             );
 
             CREATE TABLE IF NOT EXISTS rounds (
@@ -93,6 +95,25 @@ def init_db(app):
         ''')
         db.commit()
 
+        # Migration: add source column to samples and rebuild UNIQUE constraint
+        cols = [row[1] for row in db.execute('PRAGMA table_info(samples)').fetchall()]
+        if 'source' not in cols:
+            db.executescript('''
+                CREATE TABLE samples_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source TEXT NOT NULL DEFAULT 'default',
+                    galaxy_id TEXT NOT NULL,
+                    num_rounds INTEGER NOT NULL DEFAULT 0,
+                    last_scanned TEXT DEFAULT (datetime('now')),
+                    UNIQUE(source, galaxy_id)
+                );
+                INSERT INTO samples_new (id, source, galaxy_id, num_rounds, last_scanned)
+                    SELECT id, 'default', galaxy_id, num_rounds, last_scanned FROM samples;
+                DROP TABLE samples;
+                ALTER TABLE samples_new RENAME TO samples;
+            ''')
+            db.commit()
+
         # Migration: add reason column if not exists
         try:
             db.execute("ALTER TABLE votes ADD COLUMN reason TEXT DEFAULT ''")
@@ -106,6 +127,13 @@ def init_db(app):
             db.commit()
         except sqlite3.OperationalError:
             pass  # Column already exists
+
+        # Migration: add bic column to rounds
+        try:
+            db.execute("ALTER TABLE rounds ADD COLUMN bic REAL")
+            db.commit()
+        except sqlite3.OperationalError:
+            pass
 
         # Migration: add missing rating columns to a_evaluations
         for col in ('image_desc_rating', 'residual_desc_rating', 'component_pred_rating'):

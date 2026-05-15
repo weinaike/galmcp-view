@@ -18,6 +18,13 @@
             {# <a href="/analysis/">残差图评价</a> #}
             <a href="/voting/">拟合投票</a>
             <a href="/statistics">投票统计</a>
+            {% if sources|length > 1 %}
+            <select class="nav-source-select" onchange="window.location.href='/voting/'+this.value+'/'">
+                {% for label in sources %}
+                <option value="{{ label }}" {% if label == current_source %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+            {% endif %}
             <span class="nav-user">用户: {{ session.username }}</span>
             <button type="button" class="btn btn-sm tour-start-btn" onclick="startTour()" title="使用指引">?</button>
             <form method="POST" action="/logout" class="inline-form">

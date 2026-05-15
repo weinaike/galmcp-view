@@ -48,7 +48,7 @@
                     {% endif %}
                 </td>
                 <td>{{ s.total_votes }}人</td>
-                <td><a href="/sample/{{ s.galaxy_id }}" class="btn btn-sm">查看</a></td>
+                <td><a href="/sample/{{ current_source }}/{{ s.galaxy_id }}" class="btn btn-sm">查看</a></td>
             </tr>
             {% endfor %}
         </tbody>
