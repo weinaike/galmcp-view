@@ -14,6 +14,13 @@ SOURCES=(
   "gadotti-0513:/home/wnk/code/s4g-p4-galfit/gadotti-0513:/data/gadotti-0513"
   "s4g-cc5:/home/wnk/code/s4g-p4-galfit/filter_mag_lt9_cc5/:/data/s4g-cc5"
   "zhongyi-0512:/home/wnk/code/s4g-p4-galfit/galfit_data_0512:/data/zhongyi-0512"
+  "gadotti-0519:/home/wnk/code/s4g-p4-galfit/gadotti-0519:/data/gadotti-0519"
+  "gadotti-0520:/home/wnk/code/s4g-p4-galfit/gadotti-0520:/data/gadotti-0520"
+  "zhongyi_0520:/home/wnk/code/s4g-p4-galfit/zhongyi_0520:/data/zhongyi_0520"
+  "gadotti-0521:/home/wnk/code/s4g-p4-galfit/gadotti-0521:/data/gadotti-0521"
+  "gadotti-0522:/home/wnk/code/s4g-p4-galfit/gadotti-0522:/data/gadotti-0522"
+  "gadotti-0527:/home/wnk/code/s4g-p4-galfit/gadotti-0527:/data/gadotti-0527"
+  "gadotti-0528:/home/wnk/code/s4g-p4-galfit/gadotti-0528:/data/gadotti-0528"
 )
 
 # Build GALFIT_SOURCES JSON and volume mount flags

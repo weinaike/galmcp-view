@@ -313,6 +313,7 @@ def sample_detail(source, galaxy_id):
 
     return render_template('sample_detail.html',
                            source=source,
+                           current_source=source,
                            galaxy_id=galaxy_id,
                            sample=sample,
                            rounds=rounds_data,

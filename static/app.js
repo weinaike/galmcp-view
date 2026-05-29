@@ -145,3 +145,85 @@ function closeReportModal(e) {
     if (e && e.target !== modal && !e.target.classList.contains('modal-close')) return;
     modal.classList.remove('active');
 }
+
+// --- Image Lightbox ---
+
+(function() {
+    var overlay = document.getElementById('lightbox-overlay');
+    var lbImg = document.getElementById('lightbox-img');
+    if (!overlay || !lbImg) return;
+
+    var scale = 1;
+    var tx = 0, ty = 0;
+    var dragging = false, dragStartX = 0, dragStartY = 0, startTx = 0, startTy = 0;
+
+    function applyTransform() {
+        lbImg.style.transform = 'translate(' + tx + 'px, ' + ty + 'px) scale(' + scale + ')';
+    }
+
+    function resetAndClose() {
+        overlay.classList.remove('active');
+        scale = 1; tx = 0; ty = 0;
+        lbImg.style.transform = '';
+    }
+
+    function openLightbox(src) {
+        lbImg.src = src;
+        scale = 1; tx = 0; ty = 0;
+        lbImg.style.transform = '';
+        overlay.classList.add('active');
+    }
+
+    // Bind to all detail-page images
+    document.addEventListener('DOMContentLoaded', function() {
+        document.querySelectorAll('.round-image img, .eval-image, .s4g-section .round-image img').forEach(function(img) {
+            img.style.cursor = 'zoom-in';
+            img.addEventListener('click', function(e) {
+                e.stopPropagation();
+                openLightbox(img.src);
+            });
+        });
+    });
+
+    // Click overlay (not image) to close
+    overlay.addEventListener('click', function(e) {
+        if (e.target === overlay) resetAndClose();
+    });
+
+    // Escape to close
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && overlay.classList.contains('active')) resetAndClose();
+    });
+
+    // Scroll to zoom
+    overlay.addEventListener('wheel', function(e) {
+        if (!overlay.classList.contains('active')) return;
+        e.preventDefault();
+        var delta = e.deltaY > 0 ? -0.15 : 0.15;
+        scale = Math.max(0.5, Math.min(5.0, scale + delta));
+        applyTransform();
+    }, { passive: false });
+
+    // Drag to pan
+    lbImg.addEventListener('mousedown', function(e) {
+        if (scale <= 1) return;
+        e.preventDefault();
+        dragging = true;
+        dragStartX = e.clientX;
+        dragStartY = e.clientY;
+        startTx = tx;
+        startTy = ty;
+        lbImg.style.cursor = 'grabbing';
+    });
+    document.addEventListener('mousemove', function(e) {
+        if (!dragging) return;
+        tx = startTx + (e.clientX - dragStartX);
+        ty = startTy + (e.clientY - dragStartY);
+        applyTransform();
+    });
+    document.addEventListener('mouseup', function() {
+        if (!dragging) return;
+        dragging = false;
+        lbImg.style.cursor = 'default';
+    });
+})();

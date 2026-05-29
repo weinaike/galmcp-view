@@ -730,3 +730,27 @@ nav {
     color: var(--green);
     font-size: 0.82rem;
 }
+
+/* === Image Lightbox === */
+#lightbox-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.85);
+    z-index: 10000;
+    cursor: zoom-out;
+    justify-content: center;
+    align-items: center;
+}
+#lightbox-overlay.active {
+    display: flex;
+}
+#lightbox-img {
+    max-width: 95vw;
+    max-height: 95vh;
+    object-fit: contain;
+    transform-origin: center center;
+    cursor: default;
+    user-select: none;
+    -webkit-user-drag: none;
+}
