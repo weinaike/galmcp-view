@@ -146,6 +146,28 @@ function closeReportModal(e) {
     modal.classList.remove('active');
 }
 
+// --- Working Note Modal ---
+
+function openWorkingNoteModal(source, galaxyId) {
+    var modal = document.getElementById('working-note-modal');
+    var body = document.getElementById('working-note-body');
+    if (!modal || !body) return;
+    body.innerHTML = '<p style="color:var(--text-muted)">加载中…</p>';
+    modal.classList.add('active');
+
+    fetch('/working-note/' + source + '/' + galaxyId)
+        .then(function(resp) { return resp.text(); })
+        .then(function(html) { body.innerHTML = html; })
+        .catch(function() { body.innerHTML = '<p style="color:var(--red)">加载失败</p>'; });
+}
+
+function closeWorkingNoteModal(e) {
+    var modal = document.getElementById('working-note-modal');
+    if (!modal) return;
+    if (e && e.target !== modal && !e.target.classList.contains('modal-close')) return;
+    modal.classList.remove('active');
+}
+
 // --- Image Lightbox ---
 
 (function() {

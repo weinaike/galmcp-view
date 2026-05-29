@@ -3,6 +3,7 @@
 import os
 import json
 import statistics as stats_mod
+from collections import OrderedDict
 from functools import wraps
 import markdown
 from flask import (Flask, render_template, request, redirect, url_for,
@@ -83,8 +84,17 @@ app = Flask(__name__)
 app.config.from_object(Config)
 
 
+def _get_sources_from_db():
+    """Load sources from DB, returning OrderedDict {label: container_path}."""
+    db = get_db()
+    rows = db.execute(
+        'SELECT label, container_path FROM sources ORDER BY sort_order, id'
+    ).fetchall()
+    return OrderedDict((r['label'], r['container_path']) for r in rows)
+
+
 def _get_source_path(source_label):
-    sources = app.config['GALFIT_SOURCES']
+    sources = _get_sources_from_db()
     if source_label not in sources:
         abort(404)
     return sources[source_label]
@@ -92,7 +102,7 @@ def _get_source_path(source_label):
 
 @app.context_processor
 def inject_sources():
-    return {'sources': app.config['GALFIT_SOURCES']}
+    return {'sources': _get_sources_from_db()}
 
 
 def _load_final_chi2():
@@ -120,6 +130,12 @@ def _find_analysis_report_path(galaxy_id, base_path):
     if not candidates:
         return None
     return os.path.join(galaxy_dir, candidates[0])
+
+
+def _find_working_note_path(galaxy_id, base_path):
+    galaxy_dir = os.path.join(base_path, galaxy_id)
+    path = os.path.join(galaxy_dir, 'working_note.md')
+    return path if os.path.isfile(path) else None
 
 
 def _parse_best_turn(galaxy_id, base_path):
@@ -184,7 +200,7 @@ def logout():
 @app.route('/voting/<source>/')
 @login_required
 def sample_list(source=None):
-    sources = app.config['GALFIT_SOURCES']
+    sources = _get_sources_from_db()
     if source is None:
         first = next(iter(sources))
         return redirect(url_for('sample_list', source=first))
@@ -239,6 +255,7 @@ def sample_detail(source, galaxy_id):
     # Check if analysis report exists
     report_path = _find_analysis_report_path(galaxy_id, base_path)
     has_analysis_report = report_path is not None
+    has_working_note = _find_working_note_path(galaxy_id, base_path) is not None
 
     # Check for *_comparison.png in galaxy directory
     comparison_png = None
@@ -319,6 +336,7 @@ def sample_detail(source, galaxy_id):
                            rounds=rounds_data,
                            my_vote=my_vote,
                            has_analysis_report=has_analysis_report,
+                           has_working_note=has_working_note,
                            has_comparison_png=comparison_png is not None,
                            s4g_components=_get_s4g_components(galaxy_id),
                            best_turn=_parse_best_turn(galaxy_id, base_path),
@@ -418,6 +436,20 @@ def serve_analysis_report(source, galaxy_id):
     return Response(html, mimetype='text/html; charset=utf-8')
 
 
+# --- Working note serving ---
+
+@app.route('/working-note/<source>/<galaxy_id>')
+@login_required
+def serve_working_note(source, galaxy_id):
+    note_path = _find_working_note_path(galaxy_id, _get_source_path(source))
+    if not note_path:
+        abort(404)
+    with open(note_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+    html = markdown.markdown(content, extensions=['tables', 'fenced_code', 'toc'])
+    return Response(html, mimetype='text/html; charset=utf-8')
+
+
 # --- Summary log serving ---
 
 @app.route('/summary/<source>/<galaxy_id>/<timestamp_dir>')
@@ -475,7 +507,7 @@ def serve_component_analysis(source, galaxy_id, timestamp_dir):
 @app.route('/statistics/<source>')
 @login_required
 def statistics(source=None):
-    sources = app.config['GALFIT_SOURCES']
+    sources = _get_sources_from_db()
     if source is None:
         first = next(iter(sources))
         return redirect(url_for('statistics', source=first))
@@ -780,13 +812,167 @@ def analysis_statistics():
 
 # --- Admin ---
 
+ADMIN_PASSWORD = '123456'
+
+
+def admin_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get('is_admin'):
+            return redirect(url_for('admin_login'))
+        return f(*args, **kwargs)
+    return decorated
+
+
+@app.route('/admin/login', methods=['GET', 'POST'])
+@login_required
+def admin_login():
+    if request.method == 'POST':
+        if request.form.get('password') == ADMIN_PASSWORD:
+            session['is_admin'] = True
+            return redirect(url_for('admin_sources'))
+        return render_template('admin_login.html', error='密码错误')
+    return render_template('admin_login.html')
+
+
+@app.route('/admin/sources')
+@login_required
+def admin_sources():
+    if not session.get('is_admin'):
+        return redirect(url_for('admin_login'))
+    db = get_db()
+    source_list = db.execute(
+        'SELECT s.label, s.container_path, s.parent_dir, s.created_at, '
+        '(SELECT COUNT(*) FROM samples WHERE source = s.label) AS galaxy_count '
+        'FROM sources s ORDER BY s.sort_order, s.id'
+    ).fetchall()
+
+    parent_dirs = app.config.get('GALFIT_PARENT_DIRS', {})
+    registered_paths = {r['container_path'] for r in source_list}
+
+    available = {}
+    for pname, ppath in parent_dirs.items():
+        dirs = []
+        if os.path.isdir(ppath):
+            for entry in sorted(os.listdir(ppath)):
+                full = os.path.join(ppath, entry)
+                if os.path.isdir(full):
+                    has_data = any(
+                        os.path.isdir(os.path.join(full, e, 'archives'))
+                        for e in os.listdir(full)
+                        if os.path.isdir(os.path.join(full, e))
+                    )
+                    dirs.append({
+                        'name': entry,
+                        'path': full,
+                        'registered': full in registered_paths,
+                        'has_data': has_data,
+                    })
+        available[pname] = {'path': ppath, 'dirs': dirs}
+
+    return render_template('admin_sources.html',
+                           source_list=source_list,
+                           available=available,
+                           parent_dirs=parent_dirs)
+
+
+@app.route('/admin/sources/add', methods=['POST'])
+@login_required
+def admin_source_add():
+    if not session.get('is_admin'):
+        abort(403)
+    label = request.form.get('label', '').strip()
+    parent_name = request.form.get('parent_name', '').strip()
+    subdirectory = request.form.get('subdirectory', '').strip()
+
+    if not label or not parent_name or not subdirectory:
+        abort(400)
+
+    parent_dirs = app.config.get('GALFIT_PARENT_DIRS', {})
+    if parent_name not in parent_dirs:
+        abort(400)
+
+    parent_path = parent_dirs[parent_name]
+    container_path = os.path.join(parent_path, subdirectory)
+
+    # Prevent path traversal
+    real_parent = os.path.realpath(parent_path)
+    real_path = os.path.realpath(container_path)
+    if not real_path.startswith(real_parent + '/') or not os.path.isdir(real_path):
+        abort(400)
+
+    db = get_db()
+    db.execute(
+        'INSERT INTO sources (label, container_path, parent_dir) VALUES (?, ?, ?)',
+        (label, container_path, parent_name)
+    )
+    db.commit()
+
+    scan_galaxies(label, container_path, db)
+
+    return redirect(url_for('admin_sources'))
+
+
+@app.route('/admin/sources/<label>/remove', methods=['POST'])
+@login_required
+def admin_source_remove(label):
+    if not session.get('is_admin'):
+        abort(403)
+    db = get_db()
+    source = db.execute('SELECT * FROM sources WHERE label = ?', (label,)).fetchone()
+    if not source:
+        abort(404)
+
+    sample_ids = [r['id'] for r in db.execute(
+        'SELECT id FROM samples WHERE source = ?', (label,)
+    ).fetchall()]
+
+    if sample_ids:
+        placeholders = ','.join('?' * len(sample_ids))
+        db.execute(f'DELETE FROM votes WHERE sample_id IN ({placeholders})', sample_ids)
+        db.execute(f'DELETE FROM rounds WHERE sample_id IN ({placeholders})', sample_ids)
+    db.execute('DELETE FROM samples WHERE source = ?', (label,))
+    db.execute('DELETE FROM sources WHERE label = ?', (label,))
+    db.commit()
+
+    return redirect(url_for('admin_sources'))
+
+
+@app.route('/admin/sources/<label>/rescan', methods=['POST'])
+@login_required
+def admin_source_rescan(label):
+    if not session.get('is_admin'):
+        abort(403)
+    db = get_db()
+    source = db.execute('SELECT * FROM sources WHERE label = ?', (label,)).fetchone()
+    if not source:
+        abort(404)
+    scan_galaxies(label, source['container_path'], db)
+    return redirect(url_for('admin_sources'))
+
+
+@app.route('/admin/sources/reorder', methods=['POST'])
+@login_required
+def admin_source_reorder():
+    if not session.get('is_admin'):
+        abort(403)
+    order = request.get_json().get('order', [])
+    db = get_db()
+    for i, label in enumerate(order):
+        db.execute('UPDATE sources SET sort_order = ? WHERE label = ?', (i, label))
+    db.commit()
+    return {'ok': True}
+
+
 @app.route('/admin/rescan', methods=['POST'])
 @login_required
 def rescan():
+    if not session.get('is_admin'):
+        abort(403)
     db = get_db()
-    for label, path in app.config['GALFIT_SOURCES'].items():
-        scan_galaxies(label, path, db)
-    return redirect(url_for('sample_list'))
+    for source in db.execute('SELECT label, container_path FROM sources').fetchall():
+        scan_galaxies(source['label'], source['container_path'], db)
+    return redirect(url_for('admin_sources'))
 
 
 # --- App lifecycle ---
@@ -798,7 +984,7 @@ if __name__ == '__main__':
     init_db(app)
     with app.app_context():
         db = get_db()
-        for label, path in app.config['GALFIT_SOURCES'].items():
-            scan_galaxies(label, path, db)
+        for source in db.execute('SELECT label, container_path FROM sources').fetchall():
+            scan_galaxies(source['label'], source['container_path'], db)
         init_analysis_data(app)
     app.run(debug=True, host='0.0.0.0', port=35091)

@@ -1,3 +1,4 @@
+import os
 import sqlite3
 from flask import g, current_app
 
@@ -92,6 +93,15 @@ def init_db(app):
 
             CREATE INDEX IF NOT EXISTS idx_a_eval_galaxy ON a_evaluations(galaxy_id);
             CREATE INDEX IF NOT EXISTS idx_a_eval_user ON a_evaluations(user_id);
+
+            CREATE TABLE IF NOT EXISTS sources (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                label TEXT NOT NULL UNIQUE,
+                container_path TEXT NOT NULL,
+                parent_dir TEXT NOT NULL DEFAULT '',
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT DEFAULT (datetime('now'))
+            );
         ''')
         db.commit()
 
@@ -150,3 +160,41 @@ def init_db(app):
                 db.commit()
             except sqlite3.OperationalError:
                 pass  # Column already exists
+
+        # Seed sources table if empty
+        source_count = db.execute('SELECT COUNT(*) FROM sources').fetchone()[0]
+        if source_count == 0:
+            env_sources = current_app.config.get('GALFIT_SOURCES', {})
+            if env_sources:
+                for label, path in env_sources.items():
+                    parent = current_app.config.get('GALFIT_PARENT_DIRS', {})
+                    pd = ''
+                    for pname, ppath in parent.items():
+                        if path.startswith(ppath):
+                            pd = pname
+                            break
+                    db.execute(
+                        'INSERT OR IGNORE INTO sources (label, container_path, parent_dir) VALUES (?, ?, ?)',
+                        (label, path, pd)
+                    )
+            else:
+                existing = db.execute('SELECT DISTINCT source FROM samples').fetchall()
+                parent_dirs = current_app.config.get('GALFIT_PARENT_DIRS', {})
+                for row in existing:
+                    label = row[0]
+                    for pname, ppath in parent_dirs.items():
+                        candidate = os.path.join(ppath, label)
+                        if os.path.isdir(candidate):
+                            db.execute(
+                                'INSERT OR IGNORE INTO sources (label, container_path, parent_dir) VALUES (?, ?, ?)',
+                                (label, candidate, pname)
+                            )
+                            break
+            db.commit()
+
+        # Migration: add sort_order column to sources
+        try:
+            db.execute("ALTER TABLE sources ADD COLUMN sort_order INTEGER DEFAULT 0")
+            db.commit()
+        except sqlite3.OperationalError:
+            pass

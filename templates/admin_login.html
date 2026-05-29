@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}管理员验证 - 星系拟合评价系统{% endblock %}
+
+{% block content %}
+<div class="container" style="max-width: 400px; margin-top: 4rem;">
+    <h2 style="text-align: center; margin-bottom: 2rem;">数据源管理 — 管理员验证</h2>
+    {% if error %}
+    <p style="color: var(--red, #e74c3c); text-align: center; margin-bottom: 1rem;">{{ error }}</p>
+    {% endif %}
+    <form method="POST" style="display: flex; flex-direction: column; gap: 1rem;">
+        <input type="password" name="password" placeholder="请输入管理密码" required autofocus
+               class="input-username" style="text-align: center;">
+        <button type="submit" class="btn btn-primary">验证</button>
+    </form>
+</div>
+{% endblock %}

@@ -11,6 +11,9 @@
             {% if has_analysis_report %}
             <button type="button" class="btn btn-sm btn-report" onclick="openReportModal('{{ source }}', '{{ galaxy_id }}')">&#128202; Agent 分析报告</button>
             {% endif %}
+            {% if has_working_note %}
+            <button type="button" class="btn btn-sm btn-report" onclick="openWorkingNoteModal('{{ source }}', '{{ galaxy_id }}')">&#128221; Working Note</button>
+            {% endif %}
         </div>
         <div class="header-actions">
             {% if prev_sample %}
@@ -196,6 +199,17 @@
                 <button type="button" class="modal-close" onclick="closeCompAnalysisModal()">&times;</button>
             </div>
             <div class="modal-body"><div class="report-content" id="comp-body"></div></div>
+        </div>
+    </div>
+
+    {# --- Working Note Modal --- #}
+    <div class="modal-overlay" id="working-note-modal" onclick="closeWorkingNoteModal(event)">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h3>Working Note</h3>
+                <button type="button" class="modal-close" onclick="closeWorkingNoteModal()">&times;</button>
+            </div>
+            <div class="modal-body"><div class="report-content" id="working-note-body"></div></div>
         </div>
     </div>
 </div>

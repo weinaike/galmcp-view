@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}数据源管理 - 星系拟合评价系统{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="header-bar">
+        <h2>数据源管理</h2>
+        <div class="header-actions">
+            <form method="POST" action="/admin/rescan" class="inline-form">
+                <button type="submit" class="btn btn-sm btn-primary">全部重新扫描</button>
+            </form>
+        </div>
+    </div>
+
+    <table class="sample-table" style="margin-bottom: 2rem;">
+        <thead>
+            <tr>
+                <th style="width:30px;"></th>
+                <th>标签</th>
+                <th>父目录</th>
+                <th>容器路径</th>
+                <th>星系数</th>
+                <th>添加时间</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody id="source-list">
+            {% for s in source_list %}
+            <tr draggable="true" data-label="{{ s.label }}"
+                style="cursor: grab;">
+                <td style="color: var(--text-muted, #666); text-align:center;">⠿</td>
+                <td class="galaxy-id">{{ s.label }}</td>
+                <td class="meta">{{ s.parent_dir or '-' }}</td>
+                <td class="meta" style="font-size: 0.85em;">{{ s.container_path }}</td>
+                <td>{{ s.galaxy_count }}</td>
+                <td class="meta">{{ s.created_at }}</td>
+                <td>
+                    <form method="POST" action="/admin/sources/{{ s.label }}/rescan" class="inline-form" style="display:inline;">
+                        <button type="submit" class="btn btn-sm">扫描</button>
+                    </form>
+                    <form method="POST" action="/admin/sources/{{ s.label }}/remove" class="inline-form" style="display:inline;"
+                          onsubmit="return confirm('确定删除数据源「{{ s.label }}」？相关投票数据将一并删除。')">
+                        <button type="submit" class="btn btn-sm" style="color: var(--red, #e74c3c);">删除</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+            {% if not source_list %}
+            <tr>
+                <td colspan="7" style="text-align:center; color: var(--text-muted, #888); padding: 2rem;">
+                    暂无数据源，请在下方添加
+                </td>
+            </tr>
+            {% endif %}
+        </tbody>
+    </table>
+
+    <h3 style="margin-top: 2rem; margin-bottom: 1rem;">添加数据源</h3>
+
+    {% for pname, info in available.items() %}
+    <div style="margin-bottom: 1.5rem; padding: 1rem; border: 1px solid var(--border-color, #333); border-radius: 6px;">
+        <p class="meta" style="margin-bottom: 0.8rem;">
+            <strong>{{ pname }}</strong>: {{ info.path }}
+        </p>
+        <form method="POST" action="/admin/sources/add" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+            <input type="hidden" name="parent_name" value="{{ pname }}">
+            <select name="subdirectory" required class="nav-source-select" style="min-width: 240px;">
+                <option value="">选择子目录...</option>
+                {% for d in info.dirs %}
+                {% if not d.registered %}
+                <option value="{{ d.name }}">{{ d.name }}{% if not d.has_data %} (无数据){% endif %}</option>
+                {% endif %}
+                {% endfor %}
+            </select>
+            <input type="text" name="label" placeholder="标签 (如 gadotti-0530)" required
+                   class="input-username" style="width: 220px;">
+            <button type="submit" class="btn btn-primary">添加并扫描</button>
+        </form>
+        {% if not info.dirs %}
+        <p class="meta" style="margin-top: 0.5rem;">目录为空或不可访问</p>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+
+<script>
+(function() {
+    const tbody = document.getElementById('source-list');
+    if (!tbody) return;
+
+    let dragRow = null;
+
+    tbody.querySelectorAll('tr[draggable]').forEach(row => {
+        row.addEventListener('dragstart', function(e) {
+            dragRow = this;
+            this.style.opacity = '0.4';
+            e.dataTransfer.effectAllowed = 'move';
+        });
+
+        row.addEventListener('dragend', function() {
+            this.style.opacity = '';
+            tbody.querySelectorAll('tr').forEach(r => r.classList.remove('drag-over'));
+        });
+
+        row.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            tbody.querySelectorAll('tr').forEach(r => r.classList.remove('drag-over'));
+            this.classList.add('drag-over');
+        });
+
+        row.addEventListener('drop', function(e) {
+            e.preventDefault();
+            if (!dragRow || dragRow === this) return;
+
+            const rows = Array.from(tbody.querySelectorAll('tr[draggable]'));
+            const fromIdx = rows.indexOf(dragRow);
+            const toIdx = rows.indexOf(this);
+
+            if (fromIdx < toIdx) {
+                this.after(dragRow);
+            } else {
+                this.before(dragRow);
+            }
+
+            // Send new order to server
+            const order = Array.from(tbody.querySelectorAll('tr[draggable]'))
+                .map(r => r.dataset.label);
+            fetch('/admin/sources/reorder', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({order: order})
+            });
+        });
+    });
+
+    // Add style for drag-over
+    const style = document.createElement('style');
+    style.textContent = '.drag-over { border-top: 2px solid var(--accent, #4a9eff) !important; }';
+    document.head.appendChild(style);
+})();
+</script>
+{% endblock %}

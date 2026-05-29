@@ -10,9 +10,23 @@ def _parse_sources():
     return OrderedDict({'default': os.environ.get('GALFIT_BASE_PATH', os.path.expanduser('~/code/galfit_example'))})
 
 
+def _parse_parent_dirs():
+    """Parse GALFIT_PARENT_DIRS env var: 'name1:/path1,name2:/path2' -> OrderedDict."""
+    raw = os.environ.get('GALFIT_PARENT_DIRS', '').strip()
+    if raw:
+        result = OrderedDict()
+        for item in raw.split(','):
+            if ':' in item:
+                name, path = item.split(':', 1)
+                result[name.strip()] = path.strip()
+        return result
+    return OrderedDict({'galfit': '/data/galfit', 'galfits': '/data/galfits'})
+
+
 class Config:
     GALFIT_BASE_PATH = os.environ.get('GALFIT_BASE_PATH', os.path.expanduser('~/code/galfit_example'))
     GALFIT_SOURCES = _parse_sources()
+    GALFIT_PARENT_DIRS = _parse_parent_dirs()
     DATABASE = os.environ.get(
         'DATABASE',
         os.path.join(os.path.dirname(os.path.abspath(__file__)), 'galfit_viewer.db')
