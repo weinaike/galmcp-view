@@ -17,6 +17,7 @@
             <tr>
                 <th style="width:30px;"></th>
                 <th>标签</th>
+                <th>详细描述</th>
                 <th>父目录</th>
                 <th>容器路径</th>
                 <th>星系数</th>
@@ -30,6 +31,8 @@
                 style="cursor: grab;">
                 <td style="color: var(--text-muted, #666); text-align:center;">⠿</td>
                 <td class="galaxy-id">{{ s.label }}</td>
+                <td class="meta desc-cell" data-label="{{ s.label }}" style="cursor:text; min-width:120px;{% if not s.description %}color:var(--text-muted,#888){% endif %}"
+                    onclick="editDesc(this)" title="点击编辑">{{ s.description or '-' }}</td>
                 <td class="meta">{{ s.parent_dir or '-' }}</td>
                 <td class="meta" style="font-size: 0.85em;">{{ s.container_path }}</td>
                 <td>{{ s.galaxy_count }}</td>
@@ -47,7 +50,7 @@
             {% endfor %}
             {% if not source_list %}
             <tr>
-                <td colspan="7" style="text-align:center; color: var(--text-muted, #888); padding: 2rem;">
+                <td colspan="8" style="text-align:center; color: var(--text-muted, #888); padding: 2rem;">
                     暂无数据源，请在下方添加
                 </td>
             </tr>
@@ -74,6 +77,8 @@
             </select>
             <input type="text" name="label" placeholder="标签 (如 gadotti-0530)" required
                    class="input-username" style="width: 220px;">
+            <input type="text" name="description" placeholder="详细描述 (可选)"
+                   class="input-username" style="width: 280px;">
             <button type="submit" class="btn btn-primary">添加并扫描</button>
         </form>
         {% if not info.dirs %}
@@ -139,5 +144,46 @@
     style.textContent = '.drag-over { border-top: 2px solid var(--accent, #4a9eff) !important; }';
     document.head.appendChild(style);
 })();
+
+// Inline edit description
+function editDesc(td) {
+    if (td.querySelector('input')) return;
+    const label = td.dataset.label;
+    const current = td.textContent.trim() === '-' ? '' : td.textContent.trim();
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = current;
+    input.className = 'input-username';
+    input.style.cssText = 'width:100%;box-sizing:border-box;font-size:0.85em;';
+    td.textContent = '';
+    td.appendChild(input);
+    input.focus();
+
+    function save() {
+        const val = input.value.trim();
+        fetch('/admin/sources/' + encodeURIComponent(label) + '/update', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({description: val})
+        }).then(r => {
+            if (r.ok) {
+                td.textContent = val || '-';
+                td.style.color = val ? '' : 'var(--text-muted,#888)';
+            } else {
+                td.textContent = current || '-';
+                td.style.color = current ? '' : 'var(--text-muted,#888)';
+            }
+        });
+    }
+
+    input.addEventListener('blur', save);
+    input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); save(); }
+        if (e.key === 'Escape') {
+            td.textContent = current || '-';
+            td.style.color = current ? '' : 'var(--text-muted,#888)';
+        }
+    });
+}
 </script>
 {% endblock %}

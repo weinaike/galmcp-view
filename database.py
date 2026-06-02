@@ -99,6 +99,7 @@ def init_db(app):
                 label TEXT NOT NULL UNIQUE,
                 container_path TEXT NOT NULL,
                 parent_dir TEXT NOT NULL DEFAULT '',
+                description TEXT NOT NULL DEFAULT '',
                 sort_order INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT DEFAULT (datetime('now'))
             );
@@ -195,6 +196,13 @@ def init_db(app):
         # Migration: add sort_order column to sources
         try:
             db.execute("ALTER TABLE sources ADD COLUMN sort_order INTEGER DEFAULT 0")
+            db.commit()
+        except sqlite3.OperationalError:
+            pass
+
+        # Migration: add description column to sources
+        try:
+            db.execute("ALTER TABLE sources ADD COLUMN description TEXT DEFAULT ''")
             db.commit()
         except sqlite3.OperationalError:
             pass

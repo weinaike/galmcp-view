@@ -7,7 +7,7 @@ from collections import OrderedDict
 from functools import wraps
 import markdown
 from flask import (Flask, render_template, request, redirect, url_for,
-                   session, send_file, abort, Response)
+                   session, send_file, abort, Response, jsonify)
 from config import Config
 from database import get_db, close_db, init_db
 from scanner import scan_galaxies
@@ -842,7 +842,7 @@ def admin_sources():
         return redirect(url_for('admin_login'))
     db = get_db()
     source_list = db.execute(
-        'SELECT s.label, s.container_path, s.parent_dir, s.created_at, '
+        'SELECT s.label, s.container_path, s.parent_dir, s.description, s.created_at, '
         '(SELECT COUNT(*) FROM samples WHERE source = s.label) AS galaxy_count '
         'FROM sources s ORDER BY s.sort_order, s.id'
     ).fetchall()
@@ -884,6 +884,7 @@ def admin_source_add():
     label = request.form.get('label', '').strip()
     parent_name = request.form.get('parent_name', '').strip()
     subdirectory = request.form.get('subdirectory', '').strip()
+    description = request.form.get('description', '').strip()
 
     if not label or not parent_name or not subdirectory:
         abort(400)
@@ -903,8 +904,8 @@ def admin_source_add():
 
     db = get_db()
     db.execute(
-        'INSERT INTO sources (label, container_path, parent_dir) VALUES (?, ?, ?)',
-        (label, container_path, parent_name)
+        'INSERT INTO sources (label, container_path, parent_dir, description) VALUES (?, ?, ?, ?)',
+        (label, container_path, parent_name, description)
     )
     db.commit()
 
@@ -936,6 +937,19 @@ def admin_source_remove(label):
     db.commit()
 
     return redirect(url_for('admin_sources'))
+
+
+@app.route('/admin/sources/<label>/update', methods=['POST'])
+@login_required
+def admin_source_update(label):
+    if not session.get('is_admin'):
+        abort(403)
+    data = request.get_json(force=True)
+    description = data.get('description', '').strip()
+    db = get_db()
+    db.execute('UPDATE sources SET description = ? WHERE label = ?', (description, label))
+    db.commit()
+    return jsonify({'ok': True})
 
 
 @app.route('/admin/sources/<label>/rescan', methods=['POST'])
