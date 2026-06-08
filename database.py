@@ -206,3 +206,24 @@ def init_db(app):
             db.commit()
         except sqlite3.OperationalError:
             pass
+
+        # Migration: add fitting_type column to samples
+        try:
+            db.execute("ALTER TABLE samples ADD COLUMN fitting_type TEXT DEFAULT 'single-band'")
+            db.commit()
+        except sqlite3.OperationalError:
+            pass
+
+        # Migration: add multi-band columns to rounds
+        for col, coldef in [
+            ('round_status', "TEXT DEFAULT 'success'"),
+            ('per_band_chi2_json', 'TEXT'),
+            ('image_fit_path', 'TEXT'),
+            ('fitting_type', "TEXT DEFAULT 'single-band'"),
+            ('is_sed', 'INTEGER DEFAULT 0'),
+        ]:
+            try:
+                db.execute(f"ALTER TABLE rounds ADD COLUMN {col} {coldef}")
+                db.commit()
+            except sqlite3.OperationalError:
+                pass

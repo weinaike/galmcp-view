@@ -252,6 +252,9 @@ def sample_detail(source, galaxy_id):
     if not sample:
         abort(404)
 
+    fitting_type = sample['fitting_type'] if sample['fitting_type'] else 'single-band'
+    data_dir_name = 'output' if fitting_type == 'multi-band' else 'archives'
+
     # Check if analysis report exists
     report_path = _find_analysis_report_path(galaxy_id, base_path)
     has_analysis_report = report_path is not None
@@ -269,7 +272,9 @@ def sample_detail(source, galaxy_id):
         pass
 
     rounds = db.execute('''
-        SELECT id, round_number, timestamp_dir, png_path, chi_squared_nu, bic, components_json, summary_path
+        SELECT id, round_number, timestamp_dir, png_path, chi_squared_nu, bic,
+               components_json, summary_path, fitting_type, round_status, is_sed,
+               per_band_chi2_json, image_fit_path
         FROM rounds
         WHERE sample_id = ?
         ORDER BY round_number
@@ -277,18 +282,27 @@ def sample_detail(source, galaxy_id):
 
     rounds_data = []
     for r in rounds:
-        fit_log_path = os.path.join(base_path, galaxy_id, 'archives', r['timestamp_dir'], 'fit.log')
+        round_fitting_type = r['fitting_type'] if r['fitting_type'] else fitting_type
+        round_data_dir = 'output' if round_fitting_type == 'multi-band' else 'archives'
+
+        # Find fit log
+        log_name = 'run.log' if round_fitting_type == 'multi-band' else 'fit.log'
+        fit_log_path = os.path.join(base_path, galaxy_id, round_data_dir, r['timestamp_dir'], log_name)
         fit_log_content = ''
         if os.path.isfile(fit_log_path):
             try:
                 with open(fit_log_path, 'r', encoding='utf-8', errors='replace') as f:
                     lines = f.readlines()
-                # 跳过第 2-6 行（索引 1-5）：空行 + 文件路径信息
-                fit_log_content = ''.join(lines[:1] + lines[6:])
+                if round_fitting_type == 'single-band':
+                    # 跳过第 2-6 行（索引 1-5）：空行 + 文件路径信息
+                    fit_log_content = ''.join(lines[:1] + lines[6:])
+                else:
+                    fit_log_content = ''.join(lines)
             except OSError:
                 pass
+
         # Check for component analysis file (*_component_analysis.md)
-        archive_dir = os.path.join(base_path, galaxy_id, 'archives', r['timestamp_dir'])
+        archive_dir = os.path.join(base_path, galaxy_id, round_data_dir, r['timestamp_dir'])
         comp_analysis_file = None
         try:
             comp_analysis_file = next(
@@ -297,6 +311,18 @@ def sample_detail(source, galaxy_id):
             )
         except OSError:
             pass
+
+        # Parse per-band chi2 from DB
+        per_band_chi2 = None
+        if r['per_band_chi2_json']:
+            try:
+                per_band_chi2 = json.loads(r['per_band_chi2_json'])
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        round_status = r['round_status'] if r['round_status'] else 'success'
+        is_sed = bool(r['is_sed']) if r['is_sed'] is not None else False
+        has_image_fit = bool(r['image_fit_path']) if r['image_fit_path'] else False
 
         rounds_data.append({
             'round_number': r['round_number'],
@@ -308,6 +334,10 @@ def sample_detail(source, galaxy_id):
             'chi_squared_nu': r['chi_squared_nu'],
             'bic': r['bic'],
             'fit_log': fit_log_content,
+            'per_band_chi2': per_band_chi2,
+            'round_status': round_status,
+            'is_sed': is_sed,
+            'has_image_fit': has_image_fit,
         })
 
     my_vote = db.execute('''
@@ -335,6 +365,7 @@ def sample_detail(source, galaxy_id):
                            sample=sample,
                            rounds=rounds_data,
                            my_vote=my_vote,
+                           fitting_type=fitting_type,
                            has_analysis_report=has_analysis_report,
                            has_working_note=has_working_note,
                            has_comparison_png=comparison_png is not None,
@@ -404,6 +435,25 @@ def serve_image(source, galaxy_id, timestamp_dir):
         abort(404)
 
     return send_file(png_path, mimetype='image/png')
+
+
+@app.route('/image-fit/<source>/<galaxy_id>/<timestamp_dir>')
+@login_required
+def serve_image_fit(source, galaxy_id, timestamp_dir):
+    db = get_db()
+    row = db.execute('''
+        SELECT r.image_fit_path FROM rounds r
+        JOIN samples s ON r.sample_id = s.id
+        WHERE s.source = ? AND s.galaxy_id = ? AND r.timestamp_dir = ?
+    ''', (source, galaxy_id, timestamp_dir)).fetchone()
+
+    if not row or not row['image_fit_path']:
+        abort(404)
+
+    if not os.path.isfile(row['image_fit_path']):
+        abort(404)
+
+    return send_file(row['image_fit_path'], mimetype='image/png')
 
 
 @app.route('/comparison-image/<source>/<galaxy_id>')
@@ -480,8 +530,18 @@ def serve_summary(source, galaxy_id, timestamp_dir):
 @app.route('/component-analysis/<source>/<galaxy_id>/<timestamp_dir>')
 @login_required
 def serve_component_analysis(source, galaxy_id, timestamp_dir):
+    db = get_db()
+    sample = db.execute(
+        'SELECT fitting_type FROM samples WHERE source = ? AND galaxy_id = ?',
+        (source, galaxy_id)
+    ).fetchone()
+    if not sample:
+        abort(404)
+
+    fitting_type = sample['fitting_type'] if sample['fitting_type'] else 'single-band'
+    data_dir = 'output' if fitting_type == 'multi-band' else 'archives'
     archive_dir = os.path.join(_get_source_path(source),
-                               galaxy_id, 'archives', timestamp_dir)
+                               galaxy_id, data_dir, timestamp_dir)
     try:
         filename = next(
             (f for f in os.listdir(archive_dir) if 'component_analysis' in f and f.endswith('.md')),
@@ -858,7 +918,8 @@ def admin_sources():
                 full = os.path.join(ppath, entry)
                 if os.path.isdir(full):
                     has_data = any(
-                        os.path.isdir(os.path.join(full, e, 'archives'))
+                        os.path.isdir(os.path.join(full, e, 'archives')) or
+                        os.path.isdir(os.path.join(full, e, 'output'))
                         for e in os.listdir(full)
                         if os.path.isdir(os.path.join(full, e))
                     )

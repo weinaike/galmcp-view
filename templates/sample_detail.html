@@ -6,7 +6,11 @@
     <div class="header-bar">
         <div>
             <a href="/voting/{{ source }}/" class="back-link">&larr; 返回列表</a>
-            <h2>{{ galaxy_id }}</h2>
+            <h2>{{ galaxy_id }}
+                {% if fitting_type == 'multi-band' %}
+                <span class="badge badge-multiband">多波段</span>
+                {% endif %}
+            </h2>
             <span class="meta">{{ sample.num_rounds }} 轮拟合</span>
             {% if has_analysis_report %}
             <button type="button" class="btn btn-sm btn-report" onclick="openReportModal('{{ source }}', '{{ galaxy_id }}')">&#128202; Agent 分析报告</button>
@@ -57,9 +61,13 @@
     {# --- Fitting Rounds (vertical layout) --- #}
     <div class="rounds-section">
         {% for r in rounds %}
-        <div class="round-card{% if best_turn and r.timestamp_dir == best_turn %} best-turn-highlight{% endif %}" data-round="{{ r.round_number }}" data-timestamp="{{ r.timestamp_dir }}" data-source="{{ source }}" id="round-{{ r.round_number }}">
+        <div class="round-card{% if r.round_status == 'failed' %} round-failed{% elif r.round_status == 'sed' %} round-sed{% endif %}{% if best_turn and r.timestamp_dir == best_turn %} best-turn-highlight{% endif %}" data-round="{{ r.round_number }}" data-timestamp="{{ r.timestamp_dir }}" data-source="{{ source }}" id="round-{{ r.round_number }}">
             <div class="round-header">
-                <h3>轮次 {{ r.round_number }}{% if best_turn and r.timestamp_dir == best_turn %} &#11088; AI推荐{% endif %}</h3>
+                <h3>轮次 {{ r.round_number }}
+                    {% if r.is_sed %} <span class="badge badge-sed">SED</span>{% endif %}
+                    {% if r.round_status == 'failed' %} <span class="badge badge-failed">失败</span>{% endif %}
+                    {% if best_turn and r.timestamp_dir == best_turn %} &#11088; AI推荐{% endif %}
+                </h3>
                 <span class="round-meta">{{ r.timestamp_dir }}</span>
                 {% if r.chi_squared_nu is not none %}
                 <span class="chi2-badge">&chi;&sup2;/&nu; = {{ '%.3f' | format(r.chi_squared_nu) }}</span>
@@ -83,11 +91,40 @@
                      alt="Round {{ r.round_number }} comparison"
                      loading="lazy">
             </div>
+            {% elif r.round_status == 'failed' %}
+            <div class="round-failed-notice">
+                <p>此轮次拟合失败，无对比图和摘要数据。</p>
+            </div>
+            {% endif %}
+
+            {# Multi-band: per-band chi-squared chips #}
+            {% if r.per_band_chi2 %}
+            <div class="per-band-section">
+                <h4>各波段 &chi;&sup2;/&nu;</h4>
+                <div class="per-band-chips">
+                    {% for band in r.per_band_chi2 %}
+                    <span class="band-chip">
+                        <span class="band-name">{{ band.band }}</span>
+                        <span class="band-chi2">{{ '%.3f' | format(band.reduced_chisq) }}</span>
+                    </span>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            {# Multi-band: image_fit PNG #}
+            {% if r.has_image_fit %}
+            <div class="round-image">
+                <h4>各波段拟合图</h4>
+                <img src="/image-fit/{{ source }}/{{ galaxy_id }}/{{ r.timestamp_dir }}"
+                     alt="Round {{ r.round_number }} image fit"
+                     loading="lazy">
+            </div>
             {% endif %}
 
             {% if r.fit_log %}
             <div class="fitlog-section">
-                <h4>fit.log</h4>
+                <h4>{% if fitting_type == 'multi-band' %}run.log{% else %}fit.log{% endif %}</h4>
                 <pre class="fitlog-content">{{ r.fit_log }}</pre>
             </div>
             {% endif %}
@@ -129,6 +166,8 @@
                     <option value="{{ r.round_number }}"
                             {% if my_vote and my_vote.best_round == r.round_number %}selected{% endif %}>
                         轮次 {{ r.round_number }}
+                        {% if r.is_sed %} (SED){% endif %}
+                        {% if r.round_status == 'failed' %} (失败){% endif %}
                         {% if r.chi_squared_nu is not none %}
                         (&chi;&sup2;/&nu;={{ '%.3f' | format(r.chi_squared_nu) }}
                         {% if r.bic is not none %}

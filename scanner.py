@@ -133,88 +133,234 @@ def parse_summary(md_text):
     return result
 
 
-def scan_galaxies(source_label, base_path, db):
-    """Scan base_path for galaxy directories with archives and populate DB.
+def parse_gssummary(text):
+    """Parse a GalfitS .gssummary file and extract components and statistics.
 
-    For each directory containing an archives/ subdirectory:
-    1. Find all timestamp subdirectories
-    2. Sort chronologically, assign round numbers 1, 2, ...
-    3. Parse summary.md from each round
-    4. Upsert into samples and rounds tables
+    Returns dict with:
+        components: list of dicts [{type, params}, ...]
+        chi_squared_nu: float or None
+        bic: float or None
+        per_band_chi2: list of dicts [{band, chisq, dof, reduced_chisq}, ...]
+    """
+    result = {
+        'components': [],
+        'chi_squared_nu': None,
+        'bic': None,
+        'per_band_chi2': [],
+    }
+
+    # Extract overall reduced chisq
+    m = re.search(r'#\s*reduced chisq:\s*([\d.eE+\-]+)', text)
+    if m:
+        result['chi_squared_nu'] = float(m.group(1))
+
+    # Extract overall BIC
+    m = re.search(r'#\s*BIC:\s*([\d.eE+\-]+)', text)
+    if m:
+        result['bic'] = float(m.group(1))
+
+    # Extract per-band data
+    re_band = re.compile(
+        r'#\s+image number:\s*\d+\s+band:\s*(\S+)\s+'
+        r'chisq:\s*\[([\d.eE+\-]+)\]\s+'
+        r'dof:\s*\[([\d.eE+\-]+)\]\s+'
+        r'reduced chisq:\s*\[([\d.eE+\-]+)\]'
+    )
+    for m in re_band.finditer(text):
+        result['per_band_chi2'].append({
+            'band': m.group(1),
+            'chisq': float(m.group(2)),
+            'dof': float(m.group(3)),
+            'reduced_chisq': float(m.group(4)),
+        })
+
+    # Extract free parameters grouped by component prefix
+    # Known structural components: disk, bulge, bar (those with xcen/ycen/Re params)
+    known_components = {'disk', 'bulge', 'bar', 'ring', 'psf', 'agn', 'lens'}
+
+    free_match = re.search(
+        r'# free parameters:\npname\s+best_value\n(.*?)(?:\n#|\Z)',
+        text, re.DOTALL
+    )
+    if free_match:
+        params_text = free_match.group(1)
+        comp_params = {}
+        for line in params_text.strip().split('\n'):
+            parts = line.strip().split()
+            if len(parts) >= 2:
+                pname = parts[0]
+                try:
+                    pvalue = float(parts[1])
+                except ValueError:
+                    continue
+                # Group by prefix (disk_, bulge_, bar_, etc.)
+                if '_' in pname:
+                    prefix, param = pname.split('_', 1)
+                    if prefix in known_components:
+                        comp_params.setdefault(prefix, {})[param] = pvalue
+
+        for comp_name, params in comp_params.items():
+            result['components'].append({
+                'type': comp_name,
+                'params': params,
+            })
+
+    return result
+
+
+def scan_galaxies(source_label, base_path, db):
+    """Scan base_path for galaxy directories and populate DB.
+
+    Supports both single-band (archives/) and multi-band (output/) layouts:
+    1. Detect fitting type per galaxy directory
+    2. Find all timestamp subdirectories
+    3. Sort chronologically, assign round numbers 1, 2, ...
+    4. Parse summary from each round using the appropriate parser
+    5. Upsert into samples and rounds tables
+
+    base_path can be:
+    - A parent directory containing multiple galaxy subdirectories
+    - A single galaxy directory itself (with archives/ or output/ directly inside)
     """
     if not os.path.isdir(base_path):
         print(f"Warning: base path {base_path} does not exist")
         return
 
+    # Check if base_path itself is a galaxy directory
+    self_archives = os.path.join(base_path, 'archives')
+    self_output = os.path.join(base_path, 'output')
+    if os.path.isdir(self_archives) or os.path.isdir(self_output):
+        # base_path is a single galaxy directory
+        _scan_single_galaxy(source_label, base_path, base_path, db)
+        return
+
+    # Scan subdirectories as galaxy directories
     for entry in sorted(os.listdir(base_path)):
-        archives_dir = os.path.join(base_path, entry, 'archives')
-        if not os.path.isdir(archives_dir):
-            continue
+        galaxy_dir = os.path.join(base_path, entry)
+        if os.path.isdir(galaxy_dir):
+            _scan_single_galaxy(source_label, galaxy_dir, base_path, db)
 
-        galaxy_id = entry
+    db.commit()
 
-        # Get sorted timestamp directories
-        timestamp_dirs = sorted([
-            d for d in os.listdir(archives_dir)
-            if os.path.isdir(os.path.join(archives_dir, d))
-        ])
 
-        if not timestamp_dirs:
-            continue
+def _scan_single_galaxy(source_label, galaxy_dir, base_path, db):
+    """Scan a single galaxy directory and upsert into DB."""
+    # Detect fitting type: archives/ (single-band) or output/ (multi-band)
+    archives_dir = os.path.join(galaxy_dir, 'archives')
+    output_dir = os.path.join(galaxy_dir, 'output')
 
-        num_rounds = len(timestamp_dirs)
+    if os.path.isdir(archives_dir):
+        fitting_type = 'single-band'
+        data_dir = archives_dir
+    elif os.path.isdir(output_dir):
+        fitting_type = 'multi-band'
+        data_dir = output_dir
+    else:
+        return
 
-        # Upsert sample
-        db.execute(
-            'INSERT INTO samples (source, galaxy_id, num_rounds, last_scanned) '
-            'VALUES (?, ?, ?, datetime(\'now\')) '
-            'ON CONFLICT(source, galaxy_id) DO UPDATE SET '
-            'num_rounds=excluded.num_rounds, last_scanned=excluded.last_scanned',
-            (source_label, galaxy_id, num_rounds)
-        )
-        sample = db.execute(
-            'SELECT id FROM samples WHERE source = ? AND galaxy_id = ?',
-            (source_label, galaxy_id)
-        ).fetchone()
+    galaxy_id = os.path.basename(galaxy_dir)
 
-        # Process each round
-        for round_num, ts_dir in enumerate(timestamp_dirs, 1):
-            round_path = os.path.join(archives_dir, ts_dir)
+    # Get sorted timestamp directories
+    timestamp_dirs = sorted([
+        d for d in os.listdir(data_dir)
+        if os.path.isdir(os.path.join(data_dir, d))
+    ])
 
-            # Find PNG file (matches both *_galfit_comparison.png and galfit_comparison.png)
+    if not timestamp_dirs:
+        return
+
+    num_rounds = len(timestamp_dirs)
+
+    # Upsert sample with fitting_type
+    db.execute(
+        'INSERT INTO samples (source, galaxy_id, num_rounds, fitting_type, last_scanned) '
+        'VALUES (?, ?, ?, ?, datetime(\'now\')) '
+        'ON CONFLICT(source, galaxy_id) DO UPDATE SET '
+        'num_rounds=excluded.num_rounds, fitting_type=excluded.fitting_type, '
+        'last_scanned=excluded.last_scanned',
+        (source_label, galaxy_id, num_rounds, fitting_type)
+    )
+    sample = db.execute(
+        'SELECT id FROM samples WHERE source = ? AND galaxy_id = ?',
+        (source_label, galaxy_id)
+    ).fetchone()
+
+    # Process each round
+    for round_num, ts_dir in enumerate(timestamp_dirs, 1):
+        round_path = os.path.join(data_dir, ts_dir)
+
+        # Detect SED round
+        is_sed = ts_dir.endswith('_sed') or '_sed_' in ts_dir
+
+        # Find comparison PNG
+        if fitting_type == 'multi-band':
+            png_files = glob.glob(os.path.join(round_path, 'all_bands_comparison.png'))
+        else:
             png_files = glob.glob(os.path.join(round_path, '*galfit_comparison.png'))
-            png_path = png_files[0] if png_files else None
+        png_path = png_files[0] if png_files else None
 
-            # Find and parse summary file
+        # Find and parse summary file
+        if fitting_type == 'multi-band':
+            summary_files = glob.glob(os.path.join(round_path, '*.gssummary'))
+        else:
             summary_files = glob.glob(os.path.join(round_path, '*galfit_summary.md'))
-            chi_squared_nu = None
-            components_json = None
 
-            if summary_files:
-                try:
-                    with open(summary_files[0], 'r') as f:
-                        md_text = f.read()
-                    parsed = parse_summary(md_text)
-                    chi_squared_nu = parsed['chi_squared_nu']
-                    bic = parsed.get('bic')
-                    components_json = json.dumps(parsed['components'])
-                except Exception as e:
-                    print(f"Warning: failed to parse {summary_files[0]}: {e}")
+        chi_squared_nu = None
+        bic = None
+        components_json = None
+        per_band_json = None
 
-            summary_path = summary_files[0] if summary_files else None
+        if summary_files:
+            try:
+                with open(summary_files[0], 'r') as f:
+                    text = f.read()
+                if fitting_type == 'multi-band':
+                    parsed = parse_gssummary(text)
+                    per_band_json = json.dumps(parsed.get('per_band_chi2'))
+                else:
+                    parsed = parse_summary(text)
+                chi_squared_nu = parsed.get('chi_squared_nu')
+                bic = parsed.get('bic')
+                components_json = json.dumps(parsed.get('components', []))
+            except Exception as e:
+                print(f"Warning: failed to parse {summary_files[0]}: {e}")
 
-            db.execute(
-                'INSERT INTO rounds (sample_id, round_number, timestamp_dir, png_path, '
-                'chi_squared_nu, bic, components_json, summary_path) '
-                'VALUES (?, ?, ?, ?, ?, ?, ?, ?) '
-                'ON CONFLICT(sample_id, round_number) DO UPDATE SET '
-                'timestamp_dir=excluded.timestamp_dir, png_path=excluded.png_path, '
-                'chi_squared_nu=excluded.chi_squared_nu, '
-                'bic=excluded.bic, '
-                'components_json=excluded.components_json, '
-                'summary_path=excluded.summary_path',
-                (sample['id'], round_num, ts_dir, png_path,
-                 chi_squared_nu, bic, components_json, summary_path)
-            )
+        summary_path = summary_files[0] if summary_files else None
+
+        # Find image_fit PNG (multi-band only)
+        image_fit_path = None
+        if fitting_type == 'multi-band':
+            image_fit_files = glob.glob(os.path.join(round_path, '*image_fit.png'))
+            image_fit_path = image_fit_files[0] if image_fit_files else None
+
+        # Determine round status
+        if png_path is None and summary_path is None:
+            round_status = 'failed'
+        elif is_sed:
+            round_status = 'sed'
+        else:
+            round_status = 'success'
+
+        db.execute(
+            'INSERT INTO rounds (sample_id, round_number, timestamp_dir, png_path, '
+            'chi_squared_nu, bic, components_json, summary_path, '
+            'fitting_type, round_status, is_sed, per_band_chi2_json, image_fit_path) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
+            'ON CONFLICT(sample_id, round_number) DO UPDATE SET '
+            'timestamp_dir=excluded.timestamp_dir, png_path=excluded.png_path, '
+            'chi_squared_nu=excluded.chi_squared_nu, '
+            'bic=excluded.bic, '
+            'components_json=excluded.components_json, '
+            'summary_path=excluded.summary_path, '
+            'fitting_type=excluded.fitting_type, '
+            'round_status=excluded.round_status, '
+            'is_sed=excluded.is_sed, '
+            'per_band_chi2_json=excluded.per_band_chi2_json, '
+            'image_fit_path=excluded.image_fit_path',
+            (sample['id'], round_num, ts_dir, png_path,
+             chi_squared_nu, bic, components_json, summary_path,
+             fitting_type, round_status, int(is_sed), per_band_json,
+             image_fit_path)
+        )
 
     db.commit()

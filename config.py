@@ -20,7 +20,7 @@ def _parse_parent_dirs():
                 name, path = item.split(':', 1)
                 result[name.strip()] = path.strip()
         return result
-    return OrderedDict({'galfit': '/data/galfit', 'galfits': '/data/galfits'})
+    return OrderedDict({'galfit': os.path.expanduser('~/code/galfit'), 'galfits': os.path.expanduser('~/galaxy_morphology_mcp/GALFITS_examples')})
 
 
 class Config:
