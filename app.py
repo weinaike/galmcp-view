@@ -133,7 +133,8 @@ def _kb_render(source, galaxy_id, timestamp_dir, round_number, row=None, flash=N
         round_number=round_number, row=row,
         distilled=_kb_distilled(row) if row else {},
         labels=_kb_labels(row) if row else [],
-        taxonomy=TAXONOMY, flash=flash)
+        taxonomy=TAXONOMY, flash=flash,
+        is_admin=bool(session.get('is_admin')))
 
 
 def _kb_collect(prefix):
@@ -1104,6 +1105,8 @@ def kb_redistill(sid):
 @login_required
 def kb_commit(sid):
     """Commit one expert-confirmed draft to the live KB (path ②)."""
+    if not session.get('is_admin'):
+        abort(403)
     import kb_client
     db = get_db()
     row = db.execute('SELECT * FROM kb_staging WHERE id = ?', (sid,)).fetchone()
@@ -1270,7 +1273,10 @@ def kb_ajax_save():
 @login_required
 def kb_ajax_commit():
     """Commit a draft to the live KB (path ②). Persists expert edits first, so
-    a failed ingest still keeps the edited draft."""
+    a failed ingest still keeps the edited draft. Admin-only — the live-KB write
+    is not easily reversible, so gate it like batch pre-ingest."""
+    if not session.get('is_admin'):
+        abort(403)
     import kb_client
     db = get_db()
     sid = request.form.get('sid')

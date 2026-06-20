@@ -12,7 +12,7 @@
    (desc__<key> / reason__<key>) — NOT hardcoded — so a changed/added VLM
    schema field flows through automatically. GT labels are the fixed taxonomy
    (they are expert ground-truth, not VLM output). #}
-{% macro kb_panel(source, galaxy_id, timestamp_dir, round_number, row, distilled, labels, taxonomy, flash) %}
+{% macro kb_panel(source, galaxy_id, timestamp_dir, round_number, row, distilled, labels, taxonomy, flash, is_admin=false) %}
 {% set status = row.status if row else None %}
 {% set has_distill = row and row.distilled_json %}
 {% set desc = distilled.get('image_description', {}) if distilled else {} %}
@@ -83,9 +83,11 @@
         <div class="kb-panel-foot">
             <button type="button" class="btn btn-sm" onclick="kbRedistill(this)">&#128260; 重新蒸馏</button>
             <button type="submit" class="btn btn-sm">&#128190; 保存草稿</button>
+            {% if is_admin %}
             <button type="button" class="btn btn-primary" onclick="kbCommit(this)">&#9989; 确认入库</button>
+            {% endif %}
         </div>
-        <p class="meta kb-foot-note">保存草稿＝只更新本地草稿（可逆）；确认入库＝写入 live 检索库（不易撤销）。</p>
+        <p class="meta kb-foot-note">保存草稿＝只更新本地草稿（可逆）；{% if is_admin %}确认入库＝写入 live 检索库（不易撤销）。{% else %}<b>确认入库需管理员权限</b>——草稿已保存，交由管理员入库。{% endif %}</p>
     </form>
     {% endif %}
 </div>
