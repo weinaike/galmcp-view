@@ -820,3 +820,182 @@ nav {
     color: var(--accent);
     font-weight: 600;
 }
+
+/* === KB per-round inline split (image | content), inside each round-card === */
+/* Detail page is full-bleed (fills the browser width), not a centered column. */
+body.detail-page .container { max-width: none; }
+.round-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 1rem;
+    align-items: start;
+    margin-bottom: 1rem;
+}
+.round-split .round-image { margin-bottom: 0; }
+.round-split .round-image img { max-width: 100%; height: auto; }
+/* left column = image (top) + fit.log (bottom, scroll-bounded) */
+.round-left { display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; min-height: 0; }
+.round-left .fitlog-section { margin-top: 0; }
+.round-content {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    height: 100vh;
+    max-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+/* the three panels (log / comp / distill) share this slot and fill it uniformly */
+.round-content > .kb-panel { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.round-content .kb-panel > .kb-panel-body,
+.round-content .kb-panel > .kb-form,
+.round-content .kb-panel > .kb-readonly,
+.round-content .kb-panel > .kb-empty {
+    flex: 1 1 auto; min-height: 0; overflow: auto;
+}
+/* log <pre>: let the body scroll instead of a nested 70vh cap */
+.round-content .kb-log-pre { max-height: none; overflow: visible; }
+/* center the empty hint in the tall slot */
+.round-content > .kb-empty-inline {
+    flex: 1 1 auto; display: flex; align-items: center; justify-content: center; text-align: center;
+}
+.kb-empty-inline {
+    padding: 1.75rem 1rem;
+    color: var(--text-muted);
+    text-align: center;
+    font-size: 0.85rem;
+    line-height: 1.6;
+}
+.kb-empty-inline b { color: var(--text); }
+
+@media (max-width: 980px) {
+    .round-split { grid-template-columns: 1fr; }
+}
+
+/* === KB panel (shared by inline slot + review modal) === */
+.kb-panel { padding: 0.75rem 1rem 1rem; }
+.kb-panel-head {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 0.5rem; padding-bottom: 0.6rem; margin-bottom: 0.6rem;
+    border-bottom: 1px solid var(--border);
+}
+.kb-panel-title { font-weight: 600; font-size: 0.95rem; }
+.kb-panel-head-actions { display: flex; align-items: center; gap: 0.35rem; }
+.kb-panel-close {
+    background: none; border: none; color: var(--text-muted);
+    font-size: 1.4rem; line-height: 1; cursor: pointer; padding: 0 0.35rem;
+}
+.kb-panel-close:hover { color: var(--text); }
+.kb-panel-body { padding: 0.25rem 0; }
+
+.kb-flash { padding: 0.5rem 0.75rem; border-radius: 6px; margin-bottom: 0.6rem; font-size: 0.85rem; }
+.kb-flash-ok { background: rgba(63,185,80,0.12); color: var(--green); border: 1px solid rgba(63,185,80,0.35); }
+.kb-flash-err { background: rgba(248,81,73,0.12); color: var(--red); border: 1px solid rgba(248,81,73,0.35); }
+
+.kb-empty { text-align: center; padding: 1rem 0.5rem; color: var(--text-muted); }
+.kb-empty p { margin-bottom: 0.9rem; }
+.kb-big { width: 100%; padding: 0.6rem; font-size: 0.95rem; }
+
+.kb-form { display: flex; flex-direction: column; gap: 0.45rem; }
+/* distilled fields: key (left, narrow) | value (right, wide+tall) */
+.kb-field { display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 0.2rem 0.5rem; align-items: start; margin-bottom: 0.2rem; }
+.kb-field > label { font-size: 0.78rem; color: var(--text-muted); font-weight: 500;
+    text-transform: capitalize; padding-top: 0.4rem; line-height: 1.3; }
+.kb-field > textarea, .kb-field > .kb-readonly-text { width: 100%; box-sizing: border-box; }
+.kb-textarea { width: 100%; font-size: 0.85rem; resize: none; overflow: hidden; box-sizing: border-box; }
+.kb-radio { display: flex; flex-wrap: wrap; gap: 0.75rem; font-size: 0.85rem; }
+.kb-radio label { cursor: pointer; }
+
+.kb-fieldset { border: 1px solid var(--border); border-radius: 6px; padding: 0.4rem 0.6rem 0.45rem; margin: 0.1rem 0; }
+.kb-fieldset legend { font-size: 0.8rem; color: var(--text-muted); padding: 0 0.4rem; font-weight: 600; }
+
+.kb-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.kb-chips-input { gap: 0.5rem; }
+.chip-check { font-size: 0.8rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;
+    padding: 0.15rem 0.5rem; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-dark); }
+.chip-check input { margin: 0; }
+.chip-check:has(input:checked) { border-color: var(--accent); background: var(--bg-card-hover); }
+
+.kb-readonly-text { font-size: 0.85rem; line-height: 1.5; padding: 0.4rem 0.5rem;
+    background: var(--bg-dark); border-radius: 5px; border: 1px solid var(--border); white-space: pre-wrap; }
+.kb-ro-meta { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+
+.kb-panel-foot { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin-top: 0.4rem;
+    position: sticky; bottom: 0; background: var(--bg-card); padding: 0.5rem 0 0; z-index: 1; }
+.kb-panel-foot .btn-primary { margin-left: auto; }
+.kb-foot-note { font-size: 0.72rem; margin-top: 0.4rem; line-height: 1.4; }
+
+/* chips */
+.chip { display: inline-block; font-size: 0.72rem; padding: 0.1rem 0.5rem; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--bg-dark); color: var(--text-muted); white-space: nowrap; }
+.chip-sm { font-size: 0.68rem; padding: 0.05rem 0.4rem; }
+.chip-draft { color: #e3b341; border-color: rgba(227,179,65,0.45); background: rgba(227,179,65,0.1); }
+.chip-committed { color: var(--green); border-color: rgba(63,185,80,0.45); background: rgba(63,185,80,0.1); }
+.chip-lib { color: #8b949e; }
+.chip-lib-perfect { color: #58a6ff; border-color: rgba(88,166,255,0.45); background: rgba(88,166,255,0.1); }
+.chip-lib-problem { color: #bc8cff; border-color: rgba(188,140,255,0.45); background: rgba(188,140,255,0.1); }
+.chip-err { color: var(--red); border-color: rgba(248,81,73,0.45); background: rgba(248,81,73,0.1); }
+
+/* detail-page round entry button emphasis */
+.kb-entry-btn { font-weight: 600; }
+.kb-toggle.active { background: var(--bg-card-hover); border-color: var(--accent); color: var(--text); }
+.kb-log-pre {
+    white-space: pre-wrap; word-break: break-word; font-size: 0.78rem; line-height: 1.5;
+    max-height: 70vh; overflow: auto; margin: 0; padding: 0.25rem 0; color: var(--text-muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* component analysis = rendered markdown; scope it to the panel's small font
+   baseline so it matches the log / distillation panels (not browser defaults). */
+.comp-body { font-size: 0.85rem; line-height: 1.55; color: var(--text); word-break: break-word; }
+.comp-body h1, .comp-body h2, .comp-body h3, .comp-body h4 {
+    color: var(--text); font-weight: 600; margin: 0.6rem 0 0.3rem; line-height: 1.3;
+}
+.comp-body h1 { font-size: 1.02rem; }
+.comp-body h2 { font-size: 0.96rem; }
+.comp-body h3, .comp-body h4 { font-size: 0.9rem; }
+.comp-body p { margin: 0.3rem 0; }
+.comp-body ul, .comp-body ol { margin: 0.3rem 0; padding-left: 1.2rem; }
+.comp-body li { margin: 0.15rem 0; }
+.comp-body code { font-size: 0.8rem; background: var(--bg-dark); padding: 0 0.2rem; border-radius: 3px; }
+.comp-body pre { font-size: 0.78rem; overflow: auto; }
+.comp-body table { font-size: 0.8rem; border-collapse: collapse; margin: 0.4rem 0; }
+.comp-body th, .comp-body td { border: 1px solid var(--border); padding: 0.2rem 0.45rem; }
+.comp-body th { background: var(--bg-dark); }
+.comp-body strong { color: var(--text); }
+
+/* === KB review summary page === */
+.kb-stats { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem; }
+.kb-stat { display: flex; flex-direction: column; gap: 0.1rem; padding: 0.6rem 1rem;
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; min-width: 84px; }
+.kb-stat-n { font-size: 1.4rem; font-weight: 700; }
+.kb-stat-l { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.kb-stat-perfect .kb-stat-n { color: #58a6ff; }
+.kb-stat-problem .kb-stat-n { color: #bc8cff; }
+.kb-stat-kb { min-width: 160px; justify-content: center; }
+
+.kb-filters { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 1rem;
+    padding: 0.6rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; }
+
+.kb-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+.kb-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.kb-table th { text-align: left; padding: 0.5rem 0.6rem; font-size: 0.72rem; text-transform: uppercase;
+    letter-spacing: 0.04em; color: var(--text-muted); border-bottom: 1px solid var(--border); background: var(--bg-card); }
+.kb-table td { padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.kb-table tr:last-child td { border-bottom: none; }
+.kb-row-committed { opacity: 0.78; }
+.kb-cell-thumb img { width: 64px; height: 64px; object-fit: cover; border-radius: 5px; display: block; }
+.kb-galaxy { font-weight: 600; }
+.kb-cell-diag { max-width: 320px; color: var(--text-muted); }
+.kb-cell-labels { max-width: 180px; }
+.kb-cell-labels .chip { margin: 0 0.2rem 0.2rem 0; }
+.kb-cell-actions { white-space: nowrap; }
+.kb-cell-actions form { display: inline; }
+
+/* review modal wider for the editor */
+.modal-content.kb-modal-content { max-width: 780px; width: 92vw; }
+#kb-modal-body { max-height: 80vh; overflow: auto; }
+#kb-modal-body:empty { display: none; }
+.kb-modal-img { margin-bottom: 0.5rem; text-align: center; }
+.kb-modal-img img { max-width: 100%; max-height: 42vh; object-fit: contain; border-radius: 6px; }

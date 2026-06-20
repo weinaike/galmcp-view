@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}KB 入库审核 - 星系拟合评价系统{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="header-bar">
+        <div>
+            <a href="/voting/" class="back-link">&larr; 返回</a>
+            <h2>visualRAG 知识库入库</h2>
+            <span class="meta">VLM 蒸馏草稿 → 专家校对 → 入库 live KB（perfect = 形态参考；problem = 残差教学）</span>
+        </div>
+        <div class="header-actions">
+            {% if session.get('is_admin') and sources %}
+            <form method="POST" class="inline-form" style="display:inline-flex;gap:6px;align-items:center"
+                  onsubmit="return confirm('对该数据源每个样本的最佳轮次批量预蒸馏？VLM 调用可能较慢。')">
+                <select name="src" class="input-select" id="preingest-src">
+                    {% for label in sources %}
+                    <option value="{{ label }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+                <button type="button" class="btn btn-sm btn-primary"
+                        onclick="var s=document.getElementById('preingest-src').value;
+                                 if(confirm('对 '+s+' 批量预蒸馏？')){var f=document.createElement('form');f.method='POST';f.action='/admin/kb/preingest/'+s;document.body.appendChild(f);f.submit();}">
+                    批量预入库
+                </button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+
+    {# --- summary stats --- #}
+    <div class="kb-stats">
+        <div class="kb-stat"><span class="kb-stat-n">{{ stats.draft }}</span><span class="kb-stat-l">草稿</span></div>
+        <div class="kb-stat"><span class="kb-stat-n">{{ stats.committed }}</span><span class="kb-stat-l">已入库</span></div>
+        <div class="kb-stat kb-stat-perfect"><span class="kb-stat-n">{{ stats.perfect }}</span><span class="kb-stat-l">perfect</span></div>
+        <div class="kb-stat kb-stat-problem"><span class="kb-stat-n">{{ stats.problem }}</span><span class="kb-stat-l">problem</span></div>
+        <div class="kb-stat kb-stat-kb">
+            <span class="kb-stat-l">KB 服务</span>
+            {% if kb_health %}
+            <span class="kb-stat-n" style="color:var(--green)">在线 · P{{ kb_health.perfect_size if kb_health.perfect_size is not none else '?' }}/Q{{ kb_health.problem_size if kb_health.problem_size is not none else '?' }}</span>
+            {% else %}<span class="kb-stat-n" style="color:var(--red)">离线</span>{% endif %}
+        </div>
+    </div>
+
+    {# --- filters --- #}
+    <form method="GET" class="kb-filters">
+        <select name="status" class="input-select">
+            <option value="">全部状态</option>
+            <option value="draft" {% if filters.status == 'draft' %}selected{% endif %}>草稿</option>
+            <option value="committed" {% if filters.status == 'committed' %}selected{% endif %}>已入库</option>
+        </select>
+        <select name="library" class="input-select">
+            <option value="">全部库</option>
+            <option value="problem" {% if filters.library == 'problem' %}selected{% endif %}>problem</option>
+            <option value="perfect" {% if filters.library == 'perfect' %}selected{% endif %}>perfect</option>
+        </select>
+        <select name="source" class="input-select">
+            <option value="">全部数据源</option>
+            {% for label in sources %}
+            <option value="{{ label }}" {% if filters.source == label %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+        <input type="text" name="q" value="{{ filters.q }}" placeholder="搜索星系 id…" class="input-textarea" style="padding:4px 8px; width:160px">
+        <button type="submit" class="btn btn-sm">筛选</button>
+        <a href="/kb/review" class="btn btn-sm">重置</a>
+    </form>
+
+    {% if not items %}
+    <p class="empty">暂无草稿。点数据源「批量预入库」，或在样本详情页对单个轮次点「蒸馏」。</p>
+    {% endif %}
+
+    {# --- summary table --- #}
+    {% if items %}
+    <div class="kb-table-wrap">
+        <table class="kb-table">
+            <thead>
+                <tr>
+                    <th></th>
+                    <th>星系 / 轮次</th>
+                    <th>库</th>
+                    <th>状态</th>
+                    <th>诊断摘要</th>
+                    <th>GT 标签</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for it in items %}
+                {% set r = it.row %}
+                <tr class="{% if r.status == 'committed' %}kb-row-committed{% endif %}">
+                    <td class="kb-cell-thumb">
+                        <img src="/image/{{ r.source }}/{{ r.galaxy_id }}/{{ r.timestamp_dir }}" alt="" loading="lazy">
+                    </td>
+                    <td class="kb-cell-id">
+                        <div class="kb-galaxy">{{ r.galaxy_id }}</div>
+                        <div class="meta">r{{ r.round_number if r.round_number is not none else '—' }} · {{ r.source }}</div>
+                    </td>
+                    <td>{% if r.library %}<span class="chip chip-lib chip-lib-{{ r.library }}">{{ r.library }}</span>{% endif %}</td>
+                    <td>
+                        {% if r.status == 'committed' %}<span class="chip chip-committed">✅ 已入库</span>
+                        {% else %}<span class="chip chip-draft">草稿</span>{% endif %}
+                        {% if r.error %}<span class="chip chip-err" title="{{ r.error }}">⚠</span>{% endif %}
+                    </td>
+                    <td class="kb-cell-diag">{{ it.diagnosis or '<span class="meta">—</span>' | safe }}</td>
+                    <td class="kb-cell-labels">
+                        {% for t in it.labels %}<span class="chip chip-sm">{{ t }}</span>{% endfor %}
+                    </td>
+                    <td class="kb-cell-actions">
+                        <button type="button" class="btn btn-sm"
+                                onclick="kbOpenBySid({{ r.id }}, '{{ r.source }}', '{{ r.galaxy_id }}', '{{ r.timestamp_dir }}')">{% if r.status == 'committed' %}查看{% else %}查看 / 编辑{% endif %}</button>
+                        {% if r.status != 'committed' %}
+                        <form method="POST" action="/kb/staging/{{ r.id }}/delete" class="inline-form"
+                              onsubmit="return confirm('删除该草稿？')" style="display:inline">
+                            <button type="submit" class="btn btn-sm">删除</button>
+                        </form>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    <p class="meta" style="margin-top:1rem">点「查看 / 编辑」在弹层中复用与详情页右侧相同的编辑器；草稿态可蒸馏/重蒸/保存/入库，已入库只读。</p>
+</div>
+
+{# --- shared editor modal (body filled by AJAX, same kb_panel as the rail) --- #}
+<div class="modal-overlay" id="kb-modal" onclick="kbCloseModal(event)">
+    <div class="modal-content kb-modal-content" onclick="event.stopPropagation()">
+        <div class="modal-body"><div id="kb-modal-body"></div></div>
+    </div>
+</div>
+{% endblock %}

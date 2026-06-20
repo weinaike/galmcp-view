@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ galaxy_id }} - 星系拟合评价系统{% endblock %}
+{% block bodyclass %}detail-page{% endblock %}
 
 {% block content %}
 <div class="container">
@@ -75,21 +76,46 @@
                 {% if r.bic is not none %}
                 <span class="chi2-badge">BIC = {{ '%.1f' | format(r.bic) }}</span>
                 {% endif %}
-                {% if r.has_summary %}
-                <button type="button" class="btn btn-sm log-toggle"
-                        onclick="openLogModal('{{ source }}', '{{ galaxy_id }}', '{{ r.timestamp_dir }}')">&#128196; 查看日志</button>
+                {% if r.has_summary and r.has_png %}
+                <button type="button" class="btn btn-sm log-toggle kb-toggle"
+                        onclick="kbOpenLog(this, '{{ source }}', '{{ galaxy_id }}', '{{ r.timestamp_dir }}', {{ r.round_number }})"
+                        title="在此轮图片右侧查看日志">&#128196; 查看日志</button>
                 {% endif %}
-                {% if r.has_comp_analysis %}
-                <button type="button" class="btn btn-sm log-toggle"
-                        onclick="openCompAnalysisModal('{{ source }}', '{{ galaxy_id }}', '{{ r.timestamp_dir }}')">&#128269; 显示成分分析</button>
+                {% if r.has_comp_analysis and r.has_png %}
+                <button type="button" class="btn btn-sm log-toggle kb-toggle"
+                        onclick="kbOpenComp(this, '{{ source }}', '{{ galaxy_id }}', '{{ r.timestamp_dir }}', {{ r.round_number }})"
+                        title="在此轮图片右侧只读查看成分分析">&#128269; 成分分析</button>
+                {% endif %}
+                {% if r.has_png %}
+                <button type="button" class="btn btn-sm btn-report kb-entry-btn kb-toggle"
+                        onclick="kbOpenRound(this, '{{ source }}', '{{ galaxy_id }}', '{{ r.timestamp_dir }}', {{ r.round_number }})"
+                        title="在此轮图片右侧蒸馏 / 查看 / 入库">
+                    {%- if r.kb_status == 'committed' -%}&#9989; 已入库
+                    {%- elif r.kb_status == 'draft' -%}&#128065; 查看蒸馏
+                    {%- else -%}&#129514; 蒸馏
+                    {%- endif -%}
+                </button>
                 {% endif %}
             </div>
 
             {% if r.has_png %}
-            <div class="round-image">
-                <img src="/image/{{ source }}/{{ galaxy_id }}/{{ r.timestamp_dir }}"
-                     alt="Round {{ r.round_number }} comparison"
-                     loading="lazy">
+            <div class="round-split">
+                <div class="round-left">
+                    <div class="round-image">
+                        <img src="/image/{{ source }}/{{ galaxy_id }}/{{ r.timestamp_dir }}"
+                             alt="Round {{ r.round_number }} comparison"
+                             loading="lazy">
+                    </div>
+                    {% if r.fit_log %}
+                    <div class="fitlog-section">
+                        <h4>{% if fitting_type == 'multi-band' %}run.log{% else %}fit.log{% endif %}</h4>
+                        <pre class="fitlog-content">{{ r.fit_log }}</pre>
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="round-content" data-kb-root id="kb-round-{{ r.round_number }}">
+                    <div class="kb-empty-inline"><p>点标题栏 <b>&#129514; 蒸馏/查看</b> 或 <b>&#128269; 成分分析</b> 在此显示。</p></div>
+                </div>
             </div>
             {% elif r.round_status == 'failed' %}
             <div class="round-failed-notice">
@@ -112,17 +138,8 @@
             </div>
             {% endif %}
 
-            {# Multi-band: image_fit PNG #}
-            {% if r.has_image_fit %}
-            <div class="round-image">
-                <h4>各波段拟合图</h4>
-                <img src="/image-fit/{{ source }}/{{ galaxy_id }}/{{ r.timestamp_dir }}"
-                     alt="Round {{ r.round_number }} image fit"
-                     loading="lazy">
-            </div>
-            {% endif %}
-
-            {% if r.fit_log %}
+            {# fit.log for rounds without a comparison image (e.g. failed runs) #}
+            {% if r.fit_log and not r.has_png %}
             <div class="fitlog-section">
                 <h4>{% if fitting_type == 'multi-band' %}run.log{% else %}fit.log{% endif %}</h4>
                 <pre class="fitlog-content">{{ r.fit_log }}</pre>
@@ -218,28 +235,6 @@
         </div>
     </div>
     {% endif %}
-
-    {# --- Log Modal --- #}
-    <div class="modal-overlay" id="log-modal" onclick="closeLogModal(event)">
-        <div class="modal-content" onclick="event.stopPropagation()">
-            <div class="modal-header">
-                <h3 id="log-modal-title">日志</h3>
-                <button type="button" class="modal-close" onclick="closeLogModal()">&times;</button>
-            </div>
-            <div class="modal-body"><pre class="log-content" id="log-body"></pre></div>
-        </div>
-    </div>
-
-    {# --- Component Analysis Modal --- #}
-    <div class="modal-overlay" id="comp-modal" onclick="closeCompAnalysisModal(event)">
-        <div class="modal-content" onclick="event.stopPropagation()">
-            <div class="modal-header">
-                <h3 id="comp-modal-title">成分分析</h3>
-                <button type="button" class="modal-close" onclick="closeCompAnalysisModal()">&times;</button>
-            </div>
-            <div class="modal-body"><div class="report-content" id="comp-body"></div></div>
-        </div>
-    </div>
 
     {# --- Working Note Modal --- #}
     <div class="modal-overlay" id="working-note-modal" onclick="closeWorkingNoteModal(event)">

@@ -36,3 +36,7 @@ class Config:
         'ANALYSIS_IMAGE_DIR',
         os.path.join(os.path.dirname(os.path.abspath(__file__)), 'analysis_data', 'images')
     )
+    # visualRAG KB service linkage (distillation + ingestion from the labeling UI).
+    # VISUALRAG_SERVICE_URL empty => linkage disabled (badge red, ingest disabled).
+    VISUALRAG_SERVICE_URL = os.environ.get('VISUALRAG_SERVICE_URL', '')
+    VISUALRAG_ENABLED = os.environ.get('VISUALRAG_ENABLED', '1')

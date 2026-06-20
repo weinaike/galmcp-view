@@ -168,6 +168,170 @@ function closeWorkingNoteModal(e) {
     modal.classList.remove('active');
 }
 
+// === visualRAG KB inline panel / review-modal (AJAX panel fragments) ===
+// The /kb/ajax/* routes return the same kb_panel HTML fragment (rendered by the
+// _kb_editor macro). Each surface that hosts a panel is a [data-kb-root]
+// container: a per-round inline slot (#kb-round-<n>, beside that round's image)
+// on the detail page, or the kb_review modal body (#kb-modal-body).
+//
+// Targeting is DOM-RELATIVE, not global: every action finds its own host via
+// closest('[data-kb-root]'), so multiple rounds can be open at once without
+// cross-talk. The × button passes `this` so kbClose knows which slot to clear.
+(function () {
+    var dirty = false;  // mutation happened inside the review modal -> refresh on close
+
+    function enc(s) { return encodeURIComponent(s); }
+    function rootOf(el) { return el && el.closest ? el.closest('[data-kb-root]') : null; }
+    // auto-grow a textarea to its content (no fixed height, no manual resize)
+    function autosize(el) { el.style.height = 'auto'; el.style.height = (el.scrollHeight + 2) + 'px'; }
+    function autosizeAll(root) { if (root) root.querySelectorAll('.kb-textarea').forEach(autosize); }
+    function swapInto(root, html) { if (!root) return; root.innerHTML = html; autosizeAll(root); }
+    // grow/shrink the textarea live as the expert edits (delegated, once)
+    document.addEventListener('input', function (ev) {
+        var t = ev.target;
+        if (t && t.classList && t.classList.contains('kb-textarea')) autosize(t);
+    });
+    function placeholder() {
+        return '<div class="kb-empty-inline"><p>点标题栏 <b>&#129514; 蒸馏/查看</b> 或 <b>&#128269; 成分分析</b> 在此显示。</p></div>';
+    }
+    function loadingPanel(title) {
+        return '<div class="kb-panel"><div class="kb-panel-body"><p style="color:var(--text-muted)">' +
+               (title || '加载中…') + '</p></div></div>';
+    }
+
+    // --- toggle helpers ---
+    // Each slot tracks what it currently shows (data-kb-mode) so the SAME title-bar
+    // button that opened it can close it on a second click (no need for the inner ×).
+    function slotMode(root) { return root ? (root.getAttribute('data-kb-mode') || '') : ''; }
+    function clearActive(root) {
+        var card = root && root.closest ? root.closest('.round-card') : null;
+        if (card) card.querySelectorAll('.kb-toggle.active').forEach(function (b) { b.classList.remove('active'); });
+    }
+    function resetSlot(root) {
+        swapInto(root, placeholder());
+        if (root) root.setAttribute('data-kb-mode', '');
+        clearActive(root);
+    }
+    // Clicking the active button again closes the slot; otherwise open + mark active.
+    function openOrToggle(btn, root, mode, load) {
+        if (!root) return;
+        if (root.id !== 'kb-modal-body' && slotMode(root) === mode) { resetSlot(root); return; }
+        clearActive(root);
+        if (btn) btn.classList.add('active');
+        root.setAttribute('data-kb-mode', mode);
+        load(root);
+    }
+
+    // Distillation panel into a round's inline slot (detail page) or the modal.
+    window.kbOpenRound = function (btn, source, galaxy, ts, round) {
+        var root = document.getElementById('kb-round-' + round) ||
+                   document.getElementById('kb-modal-body');
+        openOrToggle(btn, root, 'distill', function (root) {
+            swapInto(root, loadingPanel('轮次 ' + round));
+            fetch('/kb/ajax/panel?source=' + enc(source) + '&galaxy_id=' + enc(galaxy) +
+                  '&timestamp_dir=' + enc(ts) + '&round_number=' + enc(round || ''))
+                .then(function (r) { return r.text(); }).then(function (h) { swapInto(root, h); })
+                .catch(function () { swapInto(root, '<div class="kb-flash kb-flash-err">加载失败</div>'); });
+        });
+    };
+
+    // Read-only component analysis into the same slot.
+    window.kbOpenComp = function (btn, source, galaxy, ts, round) {
+        var root = (round && document.getElementById('kb-round-' + round)) ||
+                   document.getElementById('kb-modal-body');
+        openOrToggle(btn, root, 'comp', function (root) {
+            swapInto(root, '<div class="kb-panel"><div class="kb-panel-body comp-body"><p style="color:var(--text-muted)">加载中…</p></div></div>');
+            var pb = root.querySelector('.comp-body');
+            fetch('/component-analysis/' + enc(source) + '/' + enc(galaxy) + '/' + enc(ts))
+                .then(function (r) { return r.text(); }).then(function (h) { pb.innerHTML = h; })
+                .catch(function () { pb.innerHTML = '<p style="color:var(--red)">加载成分分析失败</p>'; });
+        });
+    };
+
+    // Read-only fit log into the same slot (replaces the old log popup).
+    window.kbOpenLog = function (btn, source, galaxy, ts, round) {
+        var root = document.getElementById('kb-round-' + round) ||
+                   document.getElementById('kb-modal-body');
+        openOrToggle(btn, root, 'log', function (root) {
+            swapInto(root, '<div class="kb-panel"><div class="kb-panel-body"><pre class="kb-log-pre">加载中…</pre></div></div>');
+            var pre = root.querySelector('.kb-log-pre');
+            fetch('/summary/' + enc(source) + '/' + enc(galaxy) + '/' + enc(ts))
+                .then(function (r) { return r.text(); }).then(function (t) { pre.textContent = t; })
+                .catch(function () { pre.textContent = '加载日志失败'; });
+        });
+    };
+
+    // Generic form POST (save / distill / commit): swap the re-rendered panel
+    // into the form's OWN host root (DOM-relative).
+    function postForm(form, url) {
+        var root = rootOf(form);
+        if (!root) return;
+        var btns = form.querySelectorAll('button');
+        btns.forEach(function (b) { b.disabled = true; });
+        fetch(url, { method: 'POST', body: new FormData(form) })
+            .then(function (r) { return r.text(); })
+            .then(function (h) { swapInto(root, h); if (root && root.closest('#kb-modal')) dirty = true; })
+            .catch(function () {
+                btns.forEach(function (b) { b.disabled = false; });
+                swapInto(root, '<div class="kb-flash kb-flash-err">请求失败，请重试</div>');
+            });
+    }
+
+    window.kbPost = function (ev, url) { ev.preventDefault(); postForm(ev.target, url); return false; };
+    window.kbCommit = function (btn) {
+        var form = btn.closest('form');
+        if (!form) return;
+        if (!confirm('确认写入 live 检索库？此操作不易撤销。')) return;
+        postForm(form, '/kb/ajax/commit');
+    };
+    window.kbRedistill = function (btn) {
+        var form = btn.closest('form');
+        if (!form) return;
+        var hint = prompt('重新蒸馏（VLM 调用）。专家提示（可选，留空则无）：', '');
+        if (hint === null) return;
+        var h = form.querySelector('input[name="hint"]');
+        if (!h) { h = document.createElement('input'); h.type = 'hidden'; h.name = 'hint'; form.appendChild(h); }
+        h.value = hint;
+        postForm(form, '/kb/ajax/distill');
+    };
+
+    // × inside a panel: clear its inline slot (also deactivates the title button),
+    // or close the modal if that's the host.
+    window.kbClose = function (el) {
+        var root = rootOf(el);
+        if (!root) return;
+        if (root.closest('#kb-modal')) { kbCloseModal(); return; }
+        resetSlot(root);
+    };
+
+    // --- review modal (kb_review page) ---
+    // Shows the galaxy comparison image on top, the editor panel below.
+    window.kbOpenBySid = function (sid, source, galaxy, ts) {
+        var modal = document.getElementById('kb-modal');
+        var body = document.getElementById('kb-modal-body');
+        if (!modal || !body) return;
+        dirty = false;
+        var imgHtml = (source && galaxy && ts)
+            ? '<div class="kb-modal-img"><img src="/image/' + enc(source) + '/' + enc(galaxy) + '/' + enc(ts) + '" loading="lazy"></div>'
+            : '';
+        body.innerHTML = imgHtml + '<div class="kb-modal-panel" data-kb-root></div>';
+        var panelRoot = body.querySelector('.kb-modal-panel');
+        modal.classList.add('active');
+        swapInto(panelRoot, loadingPanel(''));
+        fetch('/kb/ajax/panel?sid=' + enc(sid))
+            .then(function (r) { return r.text(); }).then(function (h) { swapInto(panelRoot, h); })
+            .catch(function () { swapInto(panelRoot, '<div class="kb-flash kb-flash-err">加载失败</div>'); });
+    };
+    window.kbCloseModal = function (e) {
+        var m = document.getElementById('kb-modal');
+        if (!m) return;
+        if (e && e.target !== m && !e.target.classList.contains('modal-close') &&
+            !e.target.classList.contains('kb-panel-close')) return;
+        m.classList.remove('active');
+        if (dirty) { dirty = false; window.location.reload(); }
+    };
+})();
+
 // --- Image Lightbox ---
 
 (function() {

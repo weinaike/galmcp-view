@@ -103,6 +103,27 @@ def init_db(app):
                 sort_order INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT DEFAULT (datetime('now'))
             );
+
+            -- visualRAG KB ingestion staging: one draft per (source, galaxy, round),
+            -- produced by batch /distill pre-ingest, committed to the live KB on
+            -- expert review. Status draft -> committed.
+            CREATE TABLE IF NOT EXISTS kb_staging (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sample_id TEXT NOT NULL,
+                source TEXT NOT NULL,
+                galaxy_id TEXT NOT NULL,
+                round_number INTEGER,
+                timestamp_dir TEXT NOT NULL,
+                library TEXT,
+                distilled_json TEXT,
+                final_labels_json TEXT DEFAULT '[]',
+                status TEXT NOT NULL DEFAULT 'draft',
+                committed_kb_id TEXT,
+                error TEXT,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now')),
+                UNIQUE(source, galaxy_id, timestamp_dir)
+            );
         ''')
         db.commit()
 

@@ -83,6 +83,17 @@ def _get_s4g_components(galaxy_id):
 app = Flask(__name__)
 app.config.from_object(Config)
 
+# Morphology-component vocabulary (mirrors visualRAG retrieval/component_schema.py;
+# the expert picks GT labels at ingest-review time).
+TAXONOMY = ['disk', 'edge-on disk', 'bulge', 'bar', 'outer disk', 'elliptical', 'fourier', 'psf']
+
+
+def _pretty(obj) -> str:
+    return json.dumps(obj, indent=2, ensure_ascii=False)
+
+
+app.jinja_env.filters['pretty'] = _pretty
+
 
 def _get_sources_from_db():
     """Load sources from DB, returning OrderedDict {label: container_path}."""
@@ -98,6 +109,41 @@ def _get_source_path(source_label):
     if source_label not in sources:
         abort(404)
     return sources[source_label]
+
+
+def _kb_distilled(row):
+    try:
+        return json.loads(row['distilled_json']) if row and row['distilled_json'] else {}
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
+def _kb_labels(row):
+    try:
+        return json.loads(row['final_labels_json']) if row and row['final_labels_json'] else []
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+
+def _kb_render(source, galaxy_id, timestamp_dir, round_number, row=None, flash=None):
+    """Render the shared kb_panel fragment (the single AJAX render path)."""
+    return render_template(
+        '_kb_panel_render.html',
+        source=source, galaxy_id=galaxy_id, timestamp_dir=timestamp_dir,
+        round_number=round_number, row=row,
+        distilled=_kb_distilled(row) if row else {},
+        labels=_kb_labels(row) if row else [],
+        taxonomy=TAXONOMY, flash=flash)
+
+
+def _kb_collect(prefix):
+    """Reconstruct a dict from form fields named ``<prefix><key>`` (dynamic
+    field set — keys come from the distilled schema, not hardcoded)."""
+    out = {}
+    for k in request.form:
+        if k.startswith(prefix) and len(k) > len(prefix):
+            out[k[len(prefix):]] = request.form.get(k)
+    return out
 
 
 @app.context_processor
@@ -324,6 +370,14 @@ def sample_detail(source, galaxy_id):
         is_sed = bool(r['is_sed']) if r['is_sed'] is not None else False
         has_image_fit = bool(r['image_fit_path']) if r['image_fit_path'] else False
 
+        # KB staging state for this round (drives the state-adaptive entry
+        # button label: None=蒸馏, draft=查看蒸馏, committed=已入库).
+        kb_row = db.execute(
+            'SELECT status, library FROM kb_staging '
+            'WHERE source=? AND galaxy_id=? AND timestamp_dir=?',
+            (source, galaxy_id, r['timestamp_dir'])).fetchone()
+        kb_status = kb_row['status'] if kb_row else None
+
         rounds_data.append({
             'round_number': r['round_number'],
             'timestamp_dir': r['timestamp_dir'],
@@ -338,6 +392,7 @@ def sample_detail(source, galaxy_id):
             'round_status': round_status,
             'is_sed': is_sed,
             'has_image_fit': has_image_fit,
+            'kb_status': kb_status,
         })
 
     my_vote = db.execute('''
@@ -868,6 +923,399 @@ def analysis_statistics():
     return render_template('analysis_stats.html',
                            users=users, galaxies=galaxies,
                            matrix=matrix, user_summary=user_summary)
+
+
+# --- visualRAG KB linkage (distillation + ingestion) ---
+
+@app.route('/kb/health')
+@login_required
+def kb_health():
+    """Proxy to the KB service /health (the browser can't reach the host service
+    directly from inside the container). Drives the nav-bar link badge."""
+    import kb_client
+    h = kb_client.health()
+    return jsonify({'enabled': kb_client.enabled(),
+                    'connected': h is not None, 'health': h})
+
+
+@app.route('/kb/review')
+@login_required
+def kb_review():
+    db = get_db()
+
+    # --- filters (GET) ---
+    f_status = (request.args.get('status') or '').strip()
+    f_library = (request.args.get('library') or '').strip()
+    f_source = (request.args.get('source') or '').strip()
+    f_q = (request.args.get('q') or '').strip()
+
+    where, args = [], []
+    if f_status in ('draft', 'committed'):
+        where.append('status = ?'); args.append(f_status)
+    if f_library in ('perfect', 'problem'):
+        where.append('library = ?'); args.append(f_library)
+    if f_source:
+        where.append('source = ?'); args.append(f_source)
+    if f_q:
+        where.append('galaxy_id LIKE ?'); args.append(f'%{f_q}%')
+    where_sql = ('WHERE ' + ' AND '.join(where)) if where else ''
+
+    rows = db.execute(
+        'SELECT * FROM kb_staging ' + where_sql +
+        ' ORDER BY CASE status WHEN \'draft\' THEN 0 ELSE 1 END, '
+        'source, galaxy_id, round_number',
+        args).fetchall()
+
+    items = []
+    for row in rows:
+        distilled = _kb_distilled(row)
+        labels = _kb_labels(row)
+        reasoning = distilled.get('reasoning', {}) or {}
+        # one-line diagnosis: prefer a 'diagnosis' field, else first reasoning value
+        diag = reasoning.get('diagnosis') or next(iter(reasoning.values()), '') or ''
+        items.append({
+            'row': row,
+            'desc': distilled.get('image_description', {}),
+            'reasoning': reasoning,
+            'labels': labels,
+            'diagnosis': (diag[:80] + '…') if len(diag) > 80 else diag,
+        })
+
+    # --- summary stats (unfiltered, for the dashboard header) ---
+    all_rows = db.execute('SELECT status, library FROM kb_staging').fetchall()
+    stats = {
+        'draft': sum(1 for r in all_rows if r['status'] == 'draft'),
+        'committed': sum(1 for r in all_rows if r['status'] == 'committed'),
+        'perfect': sum(1 for r in all_rows if r['library'] == 'perfect'),
+        'problem': sum(1 for r in all_rows if r['library'] == 'problem'),
+    }
+
+    # KB link health (best-effort; the badge already polls this too)
+    kb_health = None
+    try:
+        import kb_client
+        if kb_client.enabled():
+            kb_health = kb_client.health()
+    except Exception:  # noqa: BLE001
+        kb_health = None
+
+    return render_template('kb_review.html', items=items, stats=stats,
+                           kb_health=kb_health,
+                           filters={'status': f_status, 'library': f_library,
+                                    'source': f_source, 'q': f_q},
+                           sources=_get_sources_from_db(),
+                           taxonomy=TAXONOMY)
+
+
+@app.route('/admin/kb/preingest/<source>', methods=['POST'])
+@login_required
+def kb_preingest(source):
+    """Batch pre-ingest (path ①): distill each sample's best (last success) round
+    in a source into kb_staging drafts. Synchronous MVP; all-rounds/async is a
+    follow-up. The per-round resident button (path ③) covers other rounds."""
+    if not session.get('is_admin'):
+        abort(403)
+    import kb_client
+    container_path = _get_source_path(source)
+    db = get_db()
+    samples = db.execute(
+        'SELECT id, galaxy_id FROM samples WHERE source = ? ORDER BY galaxy_id',
+        (source,)).fetchall()
+    n_ok = n_skip = 0
+    for s in samples:
+        rnd = db.execute(
+            "SELECT round_number, timestamp_dir FROM rounds WHERE sample_id = ? "
+            "AND round_status = 'success' ORDER BY round_number DESC LIMIT 1",
+            (s['id'],)).fetchone()
+        if not rnd:
+            continue
+        ts = rnd['timestamp_dir']
+        exists = db.execute(
+            'SELECT 1 FROM kb_staging WHERE source=? AND galaxy_id=? AND timestamp_dir=?',
+            (source, s['galaxy_id'], ts)).fetchone()
+        if exists:
+            n_skip += 1
+            continue
+        distilled = kb_client.distill(container_path, s['galaxy_id'], ts, library='problem')
+        db.execute(
+            'INSERT INTO kb_staging '
+            '(sample_id, source, galaxy_id, round_number, timestamp_dir, library, distilled_json, status) '
+            'VALUES (?,?,?,?,?,?,?, \'draft\')',
+            (f"{s['galaxy_id']}_{ts}", source, s['galaxy_id'], rnd['round_number'], ts,
+             'problem' if distilled else None,
+             json.dumps(distilled, ensure_ascii=False) if distilled else None))
+        if distilled:
+            n_ok += 1
+    db.commit()
+    return redirect(url_for('kb_review'))
+
+
+@app.route('/kb/stage/<source>/<galaxy_id>/<timestamp_dir>', methods=['POST'])
+@login_required
+def kb_stage_one(source, galaxy_id, timestamp_dir):
+    """Resident single-round distill (path ③): distill one round and upsert a
+    draft, then drop the expert onto the review page to confirm + commit."""
+    import kb_client
+    library = request.form.get('library', 'problem')
+    container_path = _get_source_path(source)
+    distilled = kb_client.distill(container_path, galaxy_id, timestamp_dir, library=library)
+    db = get_db()
+    db.execute(
+        'INSERT INTO kb_staging '
+        '(sample_id, source, galaxy_id, timestamp_dir, library, distilled_json, status) '
+        'VALUES (?,?,?,?,?,?, \'draft\') '
+        'ON CONFLICT(source, galaxy_id, timestamp_dir) DO UPDATE SET '
+        'library=excluded.library, distilled_json=excluded.distilled_json, '
+        "status='draft', error=NULL, updated_at=datetime('now')",
+        (f"{galaxy_id}_{timestamp_dir}", source, galaxy_id, timestamp_dir,
+         library if distilled else None,
+         json.dumps(distilled, ensure_ascii=False) if distilled else None))
+    db.commit()
+    return redirect(url_for('kb_review'))
+
+
+@app.route('/kb/staging/<int:sid>/redistill', methods=['POST'])
+@login_required
+def kb_redistill(sid):
+    """Re-distill one draft under a (possibly different) library."""
+    import kb_client
+    db = get_db()
+    row = db.execute('SELECT * FROM kb_staging WHERE id = ?', (sid,)).fetchone()
+    if not row:
+        abort(404)
+    library = request.form.get('library', row['library'] or 'problem')
+    hint = request.form.get('hint', '').strip() or None
+    distilled = kb_client.distill(_get_source_path(row['source']), row['galaxy_id'],
+                                  row['timestamp_dir'], library=library, hint=hint)
+    if distilled:
+        db.execute(
+            'UPDATE kb_staging SET library=?, distilled_json=?, error=NULL, '
+            "updated_at=datetime('now') WHERE id=?",
+            (library, json.dumps(distilled, ensure_ascii=False), sid))
+    else:
+        db.execute(
+            'UPDATE kb_staging SET error=?, updated_at=datetime(\'now\') WHERE id=?',
+            ('distill failed (KB service unavailable)', sid))
+    db.commit()
+    return redirect(url_for('kb_review'))
+
+
+@app.route('/kb/staging/<int:sid>/commit', methods=['POST'])
+@login_required
+def kb_commit(sid):
+    """Commit one expert-confirmed draft to the live KB (path ②)."""
+    import kb_client
+    db = get_db()
+    row = db.execute('SELECT * FROM kb_staging WHERE id = ?', (sid,)).fetchone()
+    if not row:
+        abort(404)
+    library = request.form.get('library', row['library'] or 'problem')
+    distilled = json.loads(row['distilled_json']) if row['distilled_json'] else {}
+
+    # expert edits from the form override the distilled JSON
+    for field in ('image_description', 'reasoning'):
+        raw = request.form.get(field, '').strip()
+        if raw:
+            try:
+                distilled[field] = json.loads(raw)
+            except json.JSONDecodeError:
+                pass
+    try:
+        final_labels = json.loads(request.form.get('final_labels', '[]'))
+    except json.JSONDecodeError:
+        final_labels = []
+
+    container_path = _get_source_path(row['source'])
+    payload = {
+        'sample_id': row['sample_id'],
+        'obj_id': row['galaxy_id'],
+        'library': library,
+        'final_labels': final_labels,
+        'image_description': distilled.get('image_description', {}),
+        'reasoning': distilled.get('reasoning', {}),
+        'archive_path': f"{container_path}/{row['galaxy_id']}/archives/{row['timestamp_dir']}",
+    }
+    res = kb_client.ingest(container_path, row['galaxy_id'], row['timestamp_dir'], payload)
+    if res and res.get('sample_id'):
+        db.execute(
+            'UPDATE kb_staging SET status=\'committed\', library=?, committed_kb_id=?, '
+            "error=NULL, updated_at=datetime('now') WHERE id=?",
+            (library, res.get('sample_id'), sid))
+        db.commit()
+    else:
+        db.execute(
+            'UPDATE kb_staging SET error=?, updated_at=datetime(\'now\') WHERE id=?',
+            ('ingest failed (KB service error or duplicate sample_id)', sid))
+        db.commit()
+    return redirect(url_for('kb_review'))
+
+
+@app.route('/kb/staging/<int:sid>/delete', methods=['POST'])
+@login_required
+def kb_delete_draft(sid):
+    db = get_db()
+    db.execute("DELETE FROM kb_staging WHERE id=? AND status='draft'", (sid,))
+    db.commit()
+    return redirect(url_for('kb_review'))
+
+
+# --- KB AJAX panel routes (return HTML fragments for the rail/modal editor) ---
+# Single render path: every action returns the re-rendered kb_panel for the
+# (now-current) row, so the front end just swaps the fragment. The detail page
+# and the kb_review modal both consume these.
+
+@app.route('/kb/ajax/panel')
+@login_required
+def kb_ajax_panel():
+    """Return the editor panel for a staging row. Resolves by `sid`, or by
+    (source, galaxy_id, timestamp_dir) when no draft exists yet (state A)."""
+    db = get_db()
+    sid = request.args.get('sid')
+    row = None
+    if sid:
+        row = db.execute('SELECT * FROM kb_staging WHERE id=?', (sid,)).fetchone()
+    else:
+        source = request.args.get('source', '')
+        galaxy_id = request.args.get('galaxy_id', '')
+        ts = request.args.get('timestamp_dir', '')
+        if source and galaxy_id and ts:
+            row = db.execute(
+                'SELECT * FROM kb_staging WHERE source=? AND galaxy_id=? AND timestamp_dir=?',
+                (source, galaxy_id, ts)).fetchone()
+    if row:
+        return _kb_render(row['source'], row['galaxy_id'], row['timestamp_dir'],
+                          row['round_number'], row)
+    # state A: no draft yet — render from the query params
+    return _kb_render(request.args.get('source', ''),
+                      request.args.get('galaxy_id', ''),
+                      request.args.get('timestamp_dir', ''),
+                      request.args.get('round_number') or '',
+                      row=None)
+
+
+@app.route('/kb/ajax/distill', methods=['POST'])
+@login_required
+def kb_ajax_distill():
+    """Initial distill OR re-distill (path ③ compute). Upserts kb_staging and
+    returns the re-rendered panel. On failure, keeps any prior draft intact."""
+    import kb_client
+    source = request.form.get('source', '')
+    galaxy_id = request.form.get('galaxy_id', '')
+    ts = request.form.get('timestamp_dir', '')
+    round_number = request.form.get('round_number') or None
+    library = request.form.get('library', 'problem')
+    hint = (request.form.get('hint') or '').strip() or None
+    container_path = _get_source_path(source)
+    distilled = kb_client.distill(container_path, galaxy_id, ts,
+                                  library=library, hint=hint)
+    db = get_db()
+    if distilled:
+        db.execute(
+            'INSERT INTO kb_staging '
+            '(sample_id, source, galaxy_id, round_number, timestamp_dir, library, distilled_json, status) '
+            'VALUES (?,?,?,?,?,?,?, \'draft\') '
+            'ON CONFLICT(source, galaxy_id, timestamp_dir) DO UPDATE SET '
+            'library=excluded.library, round_number=COALESCE(excluded.round_number, kb_staging.round_number), '
+            'distilled_json=excluded.distilled_json, status=\'draft\', error=NULL, '
+            "updated_at=datetime('now')",
+            (f"{galaxy_id}_{ts}", source, galaxy_id, round_number, ts,
+             library, json.dumps(distilled, ensure_ascii=False)))
+        db.commit()
+        row = db.execute(
+            'SELECT * FROM kb_staging WHERE source=? AND galaxy_id=? AND timestamp_dir=?',
+            (source, galaxy_id, ts)).fetchone()
+        return _kb_render(source, galaxy_id, ts, round_number, row, flash='蒸馏完成')
+    # failure: do NOT wipe an existing draft; mark error on it if present
+    row = db.execute(
+        'SELECT * FROM kb_staging WHERE source=? AND galaxy_id=? AND timestamp_dir=?',
+        (source, galaxy_id, ts)).fetchone()
+    if row:
+        db.execute(
+            "UPDATE kb_staging SET error=?, updated_at=datetime('now') WHERE id=?",
+            ('蒸馏失败（KB 服务或 VLM 错误）', row['id']))
+        db.commit()
+        row = db.execute('SELECT * FROM kb_staging WHERE id=?', (row['id'],)).fetchone()
+        return _kb_render(source, galaxy_id, ts, round_number, row)
+    return _kb_render(source, galaxy_id, ts, round_number, row=None,
+                      flash='蒸馏失败（KB 服务或 VLM 错误）')
+
+
+@app.route('/kb/ajax/save', methods=['POST'])
+@login_required
+def kb_ajax_save():
+    """Save expert edits back to the draft (kb_staging only — no live KB)."""
+    db = get_db()
+    sid = request.form.get('sid')
+    row = db.execute('SELECT * FROM kb_staging WHERE id=?', (sid,)).fetchone()
+    if not row:
+        return _kb_render('', '', '', '', row=None, flash='草稿不存在')
+    distilled = {
+        'image_description': _kb_collect('desc__'),
+        'reasoning': _kb_collect('reason__'),
+    }
+    labels = request.form.getlist('labels')
+    library = request.form.get('library', row['library'] or 'problem')
+    db.execute(
+        "UPDATE kb_staging SET library=?, distilled_json=?, final_labels_json=?, "
+        "error=NULL, updated_at=datetime('now') WHERE id=?",
+        (library, json.dumps(distilled, ensure_ascii=False),
+         json.dumps(labels, ensure_ascii=False), sid))
+    db.commit()
+    row = db.execute('SELECT * FROM kb_staging WHERE id=?', (sid,)).fetchone()
+    return _kb_render(row['source'], row['galaxy_id'], row['timestamp_dir'],
+                      row['round_number'], row, flash='已保存草稿')
+
+
+@app.route('/kb/ajax/commit', methods=['POST'])
+@login_required
+def kb_ajax_commit():
+    """Commit a draft to the live KB (path ②). Persists expert edits first, so
+    a failed ingest still keeps the edited draft."""
+    import kb_client
+    db = get_db()
+    sid = request.form.get('sid')
+    row = db.execute('SELECT * FROM kb_staging WHERE id=?', (sid,)).fetchone()
+    if not row:
+        return _kb_render('', '', '', '', row=None, flash='草稿不存在')
+    distilled = {
+        'image_description': _kb_collect('desc__'),
+        'reasoning': _kb_collect('reason__'),
+    }
+    labels = request.form.getlist('labels')
+    library = request.form.get('library', row['library'] or 'problem')
+    db.execute(
+        "UPDATE kb_staging SET library=?, distilled_json=?, final_labels_json=?, "
+        "updated_at=datetime('now') WHERE id=?",
+        (library, json.dumps(distilled, ensure_ascii=False),
+         json.dumps(labels, ensure_ascii=False), sid))
+    db.commit()
+    container_path = _get_source_path(row['source'])
+    payload = {
+        'sample_id': row['sample_id'],
+        'obj_id': row['galaxy_id'],
+        'library': library,
+        'final_labels': labels,
+        'image_description': distilled['image_description'],
+        'reasoning': distilled['reasoning'],
+        'archive_path': f"{container_path}/{row['galaxy_id']}/archives/{row['timestamp_dir']}",
+    }
+    res = kb_client.ingest(container_path, row['galaxy_id'], row['timestamp_dir'], payload)
+    flash = None
+    if res and res.get('sample_id'):
+        db.execute(
+            "UPDATE kb_staging SET status='committed', library=?, committed_kb_id=?, "
+            "error=NULL, updated_at=datetime('now') WHERE id=?",
+            (library, res.get('sample_id'), sid))
+        db.commit()
+        flash = '已入库 live KB'
+    else:
+        db.execute(
+            "UPDATE kb_staging SET error=?, updated_at=datetime('now') WHERE id=?",
+            ('入库失败（KB 服务错误或 sample_id 重复）', sid))
+        db.commit()
+    row = db.execute('SELECT * FROM kb_staging WHERE id=?', (sid,)).fetchone()
+    return _kb_render(row['source'], row['galaxy_id'], row['timestamp_dir'],
+                      row['round_number'], row, flash=flash)
 
 
 # --- Admin ---

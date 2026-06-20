@@ -1,0 +1,109 @@
+{# Shared KB distillation editor panel — the SINGLE render path for both the
+   detail-page right rail and the kb_review modal. Returned as an HTML fragment
+   by the /kb/ajax/* routes and swapped into whichever container is active
+   (#kb-rail-body on the detail page, #kb-modal-body on the review page).
+
+   States (driven by `row`):
+     A  not distilled (no row / no distilled_json) -> distill trigger
+     B  draft                       -> editable form (save / redistill / commit)
+     C  committed                   -> read-only record
+
+   Field inputs are rendered DYNAMICALLY from the distilled dict keys
+   (desc__<key> / reason__<key>) — NOT hardcoded — so a changed/added VLM
+   schema field flows through automatically. GT labels are the fixed taxonomy
+   (they are expert ground-truth, not VLM output). #}
+{% macro kb_panel(source, galaxy_id, timestamp_dir, round_number, row, distilled, labels, taxonomy, flash) %}
+{% set status = row.status if row else None %}
+{% set has_distill = row and row.distilled_json %}
+{% set desc = distilled.get('image_description', {}) if distilled else {} %}
+{% set reasoning = distilled.get('reasoning', {}) if distilled else {} %}
+<div class="kb-panel" data-sid="{{ row.id if row else '' }}">
+    {% if flash %}<div class="kb-flash kb-flash-ok">{{ flash }}</div>{% endif %}
+    {% if row and row.error %}<div class="kb-flash kb-flash-err">&#9888; {{ row.error }}</div>{% endif %}
+
+    {% if not has_distill %}
+    {# ---- STATE A: not distilled ---- #}
+    <div class="kb-empty">
+        <p>该轮次尚未蒸馏。选择库后开始（VLM 调用，约数秒）。</p>
+        <form class="kb-form" onsubmit="return kbPost(event,'/kb/ajax/distill')">
+            <input type="hidden" name="source" value="{{ source }}">
+            <input type="hidden" name="galaxy_id" value="{{ galaxy_id }}">
+            <input type="hidden" name="timestamp_dir" value="{{ timestamp_dir }}">
+            <input type="hidden" name="round_number" value="{{ round_number }}">
+            <div class="kb-radio">
+                <label><input type="radio" name="library" value="problem" {% if not row or (row.library or 'problem') == 'problem' %}checked{% endif %}> problem（问题样本）</label>
+                <label><input type="radio" name="library" value="perfect" {% if row and row.library == 'perfect' %}checked{% endif %}> perfect（完美样本）</label>
+            </div>
+            <button type="submit" class="btn btn-primary kb-big">&#129514; 开始蒸馏</button>
+        </form>
+    </div>
+
+    {% elif status == 'committed' %}
+    {# ---- STATE C: committed, read-only ---- #}
+    <div class="kb-readonly">
+        <div class="kb-ro-meta">
+            <span class="chip chip-committed">&#9989; 已入库</span>
+            {% if row.library %}<span class="chip chip-lib chip-lib-{{ row.library }}">{{ row.library }}</span>{% endif %}
+            {% if row.committed_kb_id %}<span class="meta">KB id: {{ row.committed_kb_id }}</span>{% endif %}
+        </div>
+        {% if labels %}<div class="kb-chips">{% for t in labels %}<span class="chip">{{ t }}</span>{% endfor %}</div>{% endif %}
+        {{ kb_fields(desc, '图像描述', 'desc__', true) }}
+        {{ kb_fields(reasoning, '诊断推理', 'reason__', true) }}
+    </div>
+
+    {% else %}
+    {# ---- STATE B: draft, editable ---- #}
+    <form class="kb-form" onsubmit="return kbPost(event,'/kb/ajax/save')">
+        <input type="hidden" name="sid" value="{{ row.id }}">
+        <input type="hidden" name="source" value="{{ source }}">
+        <input type="hidden" name="galaxy_id" value="{{ galaxy_id }}">
+        <input type="hidden" name="timestamp_dir" value="{{ timestamp_dir }}">
+        <input type="hidden" name="round_number" value="{{ round_number }}">
+
+        <div class="kb-field">
+            <label>入库库</label>
+            <div class="kb-radio">
+                <label><input type="radio" name="library" value="problem" {% if not row.library or row.library == 'problem' %}checked{% endif %}> problem</label>
+                <label><input type="radio" name="library" value="perfect" {% if row.library == 'perfect' %}checked{% endif %}> perfect</label>
+            </div>
+        </div>
+
+        <div class="kb-field">
+            <label>最终形态标签（GT，可多选）</label>
+            <div class="kb-chips kb-chips-input">
+                {% for t in taxonomy %}
+                <label class="chip-check"><input type="checkbox" name="labels" value="{{ t }}" {% if t in labels %}checked{% endif %}> {{ t }}</label>
+                {% endfor %}
+            </div>
+        </div>
+
+        {{ kb_fields(desc, '图像描述', 'desc__', false) }}
+        {{ kb_fields(reasoning, '诊断推理', 'reason__', false) }}
+
+        <div class="kb-panel-foot">
+            <button type="button" class="btn btn-sm" onclick="kbRedistill(this)">&#128260; 重新蒸馏</button>
+            <button type="submit" class="btn btn-sm">&#128190; 保存草稿</button>
+            <button type="button" class="btn btn-primary" onclick="kbCommit(this)">&#9989; 确认入库</button>
+        </div>
+        <p class="meta kb-foot-note">保存草稿＝只更新本地草稿（可逆）；确认入库＝写入 live 检索库（不易撤销）。</p>
+    </form>
+    {% endif %}
+</div>
+{% endmacro %}
+
+{# Render a sub-dict as labeled fields. prefix selects the form-field namespace
+   (desc__ / reason__) so the server can reconstruct each dict by prefix. #}
+{% macro kb_fields(d, title, prefix, readonly) %}
+{% if d %}
+<fieldset class="kb-fieldset">
+    <legend>{{ title }}</legend>
+    {% for k, v in d.items() %}
+    <div class="kb-field">
+        <label class="kb-field-key">{{ k | replace('_', ' ') }}</label>
+        {% if readonly %}<div class="kb-readonly-text">{{ v }}</div>
+        {% else %}<textarea name="{{ prefix ~ k }}" rows="4" class="input-textarea kb-textarea">{{ v }}</textarea>{% endif %}
+    </div>
+    {% endfor %}
+</fieldset>
+{% endif %}
+{% endmacro %}
