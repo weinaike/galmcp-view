@@ -2,4 +2,4 @@
    The /kb/ajax/* routes render this so AJAX returns the exact same panel the
    macros produce everywhere — one render path, swapped into rail or modal. #}
 {% from "_kb_editor.html" import kb_panel %}
-{{ kb_panel(source, galaxy_id, timestamp_dir, round_number, row, distilled, labels, taxonomy, flash, is_admin) }}
+{{ kb_panel(source, galaxy_id, timestamp_dir, round_number, row, distilled, labels, taxonomy, flash, is_admin, can_distill) }}

@@ -296,8 +296,15 @@ nav {
 .round-header h3 {
     font-size: 1.1rem;
 }
-.round-header .log-toggle {
+/* Group the round action buttons (查看日志 / 成分分析 / 蒸馏) together on the
+   right edge of the header — margin-left:auto pushes the whole group right, so
+   no button is isolated in the middle. */
+.round-actions {
     margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
 }
 .round-meta {
     color: var(--text-muted);
@@ -840,7 +847,7 @@ body.detail-page .container { max-width: none; }
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: 8px;
-    height: 100vh;
+    height: 80vh;
     max-height: 100vh;
     display: flex;
     flex-direction: column;
@@ -909,6 +916,14 @@ body.detail-page .container { max-width: none; }
 
 .kb-fieldset { border: 1px solid var(--border); border-radius: 6px; padding: 0.4rem 0.6rem 0.45rem; margin: 0.1rem 0; }
 .kb-fieldset legend { font-size: 0.8rem; color: var(--text-muted); padding: 0 0.4rem; font-weight: 600; }
+
+/* markdown teaching fields (image_description / reasoning): full-width, mono,
+   vertically resizable (content can be a long transcribed report). */
+.kb-md-fieldset > textarea, .kb-md-fieldset > .kb-readonly-text { width: 100%; box-sizing: border-box; }
+.kb-md-textarea { resize: vertical; min-height: 9rem; overflow: auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.kb-md-readonly { max-height: 55vh; overflow: auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 
 .kb-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
 .kb-chips-input { gap: 0.5rem; }
@@ -995,6 +1010,13 @@ body.detail-page .container { max-width: none; }
 
 /* review modal wider for the editor */
 .modal-content.kb-modal-content { max-width: 780px; width: 92vw; }
+
+/* Distill/commit loading state (shown immediately on click while the VLM /
+   DINOv2 call runs, so the click clearly "took"). */
+.kb-loading { display: flex; gap: 0.6rem; align-items: center; color: var(--text-muted); }
+.kb-spinner { flex: 0 0 auto; width: 15px; height: 15px; border-radius: 50%;
+    border: 2px solid #c8c8c8; border-top-color: #3a8; animation: kbspin 0.8s linear infinite; }
+@keyframes kbspin { to { transform: rotate(360deg); } }
 #kb-modal-body { max-height: 80vh; overflow: auto; }
 #kb-modal-body:empty { display: none; }
 .kb-modal-img { margin-bottom: 0.5rem; text-align: center; }

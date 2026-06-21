@@ -76,6 +76,7 @@
                 {% if r.bic is not none %}
                 <span class="chi2-badge">BIC = {{ '%.1f' | format(r.bic) }}</span>
                 {% endif %}
+                <div class="round-actions">
                 {% if r.has_summary and r.has_png %}
                 <button type="button" class="btn btn-sm log-toggle kb-toggle"
                         onclick="kbOpenLog(this, '{{ source }}', '{{ galaxy_id }}', '{{ r.timestamp_dir }}', {{ r.round_number }})"
@@ -96,6 +97,7 @@
                     {%- endif -%}
                 </button>
                 {% endif %}
+                </div>
             </div>
 
             {% if r.has_png %}

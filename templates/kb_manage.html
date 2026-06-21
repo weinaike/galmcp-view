@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+{% block title %}KB 管理 - 星系拟合评价系统{% endblock %}
+
+{% block head %}
+<style>
+/* KB-management modal: wider (for the comparison PNG + markdown editors),
+   taller editable textareas, click-to-zoom comparison image. Scoped so the
+   shared .kb-modal-content (used by /kb/review) is untouched. */
+#kbm-modal .modal-content.kb-modal-content { max-width: 1000px; width: 95vw; }
+.kbm-comparison-wrap { margin: 0 0 0.6rem; text-align: center; }
+.kbm-comparison { max-width: 100%; max-height: 46vh; cursor: zoom-in;
+                  border-radius: 6px; border: 1px solid var(--border); }
+#kbm-modal .kb-textarea { resize: vertical; min-height: 8rem; font-size: 0.85rem; }
+#kbm-modal .kb-field { grid-template-columns: 92px minmax(0, 1fr); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="header-bar">
+        <div>
+            <a href="/voting/" class="back-link">&larr; 返回</a>
+            <h2>visualRAG 知识库管理</h2>
+            <span class="meta">浏览 / 编辑 / 删除已入库 live KB 条目(perfect = 形态参考;problem = 残差教学)。编辑、删除仅管理员。</span>
+        </div>
+    </div>
+
+    {# --- summary stats --- #}
+    <div class="kb-stats">
+        <div class="kb-stat"><span class="kb-stat-n">{{ total }}</span><span class="kb-stat-l">当前筛选</span></div>
+        <div class="kb-stat kb-stat-perfect"><span class="kb-stat-n">{{ perfect_n if perfect_n is not none else '?' }}</span><span class="kb-stat-l">perfect</span></div>
+        <div class="kb-stat kb-stat-problem"><span class="kb-stat-n">{{ problem_n if problem_n is not none else '?' }}</span><span class="kb-stat-l">problem</span></div>
+        <div class="kb-stat kb-stat-kb">
+            <span class="kb-stat-l">KB 服务</span>
+            {% if kb_health %}
+            <span class="kb-stat-n" style="color:var(--green)">在线 · P{{ kb_health.perfect_size if kb_health.perfect_size is not none else '?' }}/Q{{ kb_health.problem_size if kb_health.problem_size is not none else '?' }}</span>
+            {% else %}<span class="kb-stat-n" style="color:var(--red)">离线</span>{% endif %}
+        </div>
+    </div>
+
+    {# --- filters --- #}
+    <form method="GET" class="kb-filters">
+        <select name="library" class="input-select">
+            <option value="">全部库</option>
+            <option value="problem" {% if filters.library == 'problem' %}selected{% endif %}>problem</option>
+            <option value="perfect" {% if filters.library == 'perfect' %}selected{% endif %}>perfect</option>
+        </select>
+        <input type="text" name="q" value="{{ filters.q }}" placeholder="搜索 sample_id / obj_id…" class="input-textarea" style="padding:4px 8px; width:200px">
+        <button type="submit" class="btn btn-sm">筛选</button>
+        <a href="/kb/manage" class="btn btn-sm">重置</a>
+    </form>
+
+    {% if not kb_health %}
+    <p class="empty">KB 服务不可用(离线或未配置 <code>VISUALRAG_SERVICE_URL</code>)。无法浏览条目。</p>
+    {% elif not entries %}
+    <p class="empty">没有匹配的条目。</p>
+    {% endif %}
+
+    {# --- table --- #}
+    {% if entries %}
+    <div class="kb-table-wrap">
+        <table class="kb-table">
+            <thead>
+                <tr>
+                    <th></th>
+                    <th>sample_id / obj_id</th>
+                    <th>库</th>
+                    <th>摘要</th>
+                    <th>GT 标签</th>
+                    <th>成分签名</th>
+                    <th>χ²/ν</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for e in entries %}
+                <tr>
+                    <td class="kb-cell-thumb">
+                        <img src="/kb/manage/image/{{ e.library }}/{{ e.sample_id }}" alt="" loading="lazy"
+                             onerror="this.style.visibility='hidden'">
+                    </td>
+                    <td class="kb-cell-id">
+                        <div class="kb-galaxy">{{ e.sample_id or '—' }}</div>
+                        <div class="meta">{{ e.obj_id or '—' }}{% if e.filter %} · {{ e.filter }}{% endif %}</div>
+                    </td>
+                    <td>{% if e.library %}<span class="chip chip-lib chip-lib-{{ e.library }}">{{ e.library }}</span>{% endif %}</td>
+                    <td class="kb-cell-diag">{{ e.summary or '<span class="meta">—</span>' | safe }}</td>
+                    <td class="kb-cell-labels">
+                        {% for t in e.final_labels %}<span class="chip chip-sm">{{ t }}</span>{% endfor %}
+                    </td>
+                    <td class="kb-cell-labels">
+                        {% for t in e.component_signature %}<span class="chip chip-sm">{{ t }}</span>{% endfor %}
+                    </td>
+                    <td>{{ '%.2f' % e.chi2_nu if e.chi2_nu is not none else '<span class="meta">—</span>' | safe }}</td>
+                    <td class="kb-cell-actions">
+                        <button type="button" class="btn btn-sm"
+                                onclick="kbmOpen('{{ e.library }}', '{{ e.sample_id }}')">查看 / 编辑</button>
+                        {% if is_admin %}
+                        <form method="POST" action="/kb/manage/delete/{{ e.library }}/{{ e.sample_id }}" class="inline-form"
+                              onsubmit="return confirm('从 live KB 删除 {{ e.sample_id }}?\n(同时删除向量、原始 npz、对比图;不可恢复)')" style="display:inline">
+                            <input type="hidden" name="ret_library" value="{{ filters.library }}">
+                            <input type="hidden" name="ret_q" value="{{ filters.q }}">
+                            <input type="hidden" name="ret_page" value="{{ page }}">
+                            <button type="submit" class="btn btn-sm">删除</button>
+                        </form>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {# --- pagination --- #}
+    {% if pages > 1 %}
+    <div class="kb-filters" style="justify-content:center">
+        {% if page > 1 %}
+        <a class="btn btn-sm" href="/kb/manage?library={{ filters.library }}&q={{ filters.q }}&page={{ page - 1 }}">&larr; 上一页</a>
+        {% endif %}
+        <span class="meta">第 {{ page }} / {{ pages }} 页(共 {{ total }} 条)</span>
+        {% if page < pages %}
+        <a class="btn btn-sm" href="/kb/manage?library={{ filters.library }}&q={{ filters.q }}&page={{ page + 1 }}">下一页 &rarr;</a>
+        {% endif %}
+    </div>
+    {% endif %}
+    {% endif %}
+
+    <p class="meta" style="margin-top:1rem">「查看 / 编辑」在弹层中加载完整记录并编辑元数据(标签 / 图像描述 / 推理 / obj_id);保存写回 live 检索库。向量与所属库不可改。</p>
+</div>
+
+{# --- edit modal (body filled by AJAX from /kb/manage/entry) --- #}
+<div class="modal-overlay" id="kbm-modal" style="display:none" onclick="kbmClose(event)">
+    <div class="modal-content kb-modal-content" onclick="event.stopPropagation()">
+        <div class="modal-body"><div id="kbm-modal-body"></div></div>
+    </div>
+</div>
+
+<script>
+(function () {
+    var TAX = {{ taxonomy|tojson }};
+    var IS_ADMIN = {{ is_admin|tojson }};
+    var RET = {library: {{ filters.library|tojson }}, q: {{ filters.q|tojson }}, page: {{ page }}};
+    var RO = IS_ADMIN ? '' : ' readonly disabled';   // non-admin: view-only inputs
+
+    function esc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    // image_description / reasoning may be markdown str (current), dict (legacy), or null.
+    // Render as editable text; dicts are shown as pretty JSON (saving back as str is the
+    // expected edit for the markdown-form records the live KB actually stores).
+    function asText(v) {
+        if (v == null) return '';
+        if (typeof v === 'string') return v;
+        try { return JSON.stringify(v, null, 2); } catch (e) { return String(v); }
+    }
+
+    // Open the app-wide lightbox (#lightbox-overlay is wired in app.js) for the
+    // comparison PNG injected into the modal — the auto-binder there only covers
+    // detail-page images, so we open it directly.
+    window.kbmZoom = function (src) {
+        var lb = document.getElementById('lightbox-overlay');
+        var img = document.getElementById('lightbox-img');
+        if (!lb || !img) return;
+        img.src = src; img.style.transform = '';
+        lb.classList.add('active');
+    };
+
+    window.kbmOpen = function (library, sid) {
+        fetch('/kb/manage/entry/' + encodeURIComponent(library) + '/' + encodeURIComponent(sid))
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (d) {
+                if (!d) { alert('加载失败(条目不存在或 KB 服务离线)'); return; }
+                document.getElementById('kbm-modal-body').innerHTML = formHtml(d);
+                document.getElementById('kbm-modal').style.display = 'flex';
+            })
+            .catch(function () { alert('加载失败'); });
+    };
+
+    window.kbmClose = function (ev) {
+        if (ev && ev.target && ev.target.id !== 'kbm-modal') return;
+        document.getElementById('kbm-modal').style.display = 'none';
+    };
+
+    function formHtml(d) {
+        var labels = d.final_labels || [];
+        var sid = d.sample_id || '';
+        var imgUrl = '/kb/manage/image/' + encodeURIComponent(d.library) + '/' + encodeURIComponent(sid);
+        var checks = TAX.map(function (t) {
+            return '<label class="chip-check"><input type="checkbox" name="labels" value="' + esc(t) +
+                '" ' + (labels.indexOf(t) >= 0 ? 'checked' : '') + RO + '> ' + esc(t) + '</label>';
+        }).join('');
+        return [
+            // comparison image at the top so the galaxy is visible while reading/editing
+            '<div class="kbm-comparison-wrap">' +
+                '<img class="kbm-comparison" src="' + esc(imgUrl) + '" alt="对比图" loading="lazy" ' +
+                'onclick="kbmZoom(this.src)" onerror="this.parentNode.style.display=\'none\'">' +
+                '<div class="meta">对比图(原图 / 模型 / 残差)· 点击放大</div></div>',
+            '<div class="kb-ro-meta"><span class="chip chip-lib chip-lib-' + esc(d.library) + '">' + esc(d.library) +
+                '</span> <span class="meta">sample_id: ' + esc(sid) + '</span>' +
+                (d.chi2_nu != null ? ' <span class="meta">χ²/ν ' + Number(d.chi2_nu).toFixed(2) + '</span>' : '') +
+                '</div>',
+            '<form class="kb-form" method="POST" action="/kb/manage/update/' + encodeURIComponent(d.library) + '/' + encodeURIComponent(sid) + '">',
+            '<input type="hidden" name="ret_library" value="' + esc(RET.library) + '">',
+            '<input type="hidden" name="ret_q" value="' + esc(RET.q) + '">',
+            '<input type="hidden" name="ret_page" value="' + RET.page + '">',
+            '<div class="kb-field"><label>obj_id</label>' +
+                '<input type="text" name="obj_id" class="input-textarea" style="padding:4px 8px"' + RO +
+                ' value="' + esc(d.obj_id || '') + '"></div>',
+            '<div class="kb-field"><label>最终形态标签(GT,可多选)</label><div class="kb-chips kb-chips-input">' + checks + '</div></div>',
+            '<div class="kb-field"><label>图像描述(image_description)</label>' +
+                '<textarea name="image_description" rows="12" class="input-textarea kb-textarea"' + RO + '>' +
+                esc(asText(d.image_description)) + '</textarea></div>',
+            '<div class="kb-field"><label>诊断推理(reasoning)</label>' +
+                '<textarea name="reasoning" rows="12" class="input-textarea kb-textarea"' + RO + '>' +
+                esc(asText(d.reasoning)) + '</textarea></div>',
+            '<div class="kb-panel-foot"><button type="button" class="btn btn-sm" onclick="kbmClose()">关闭</button>' +
+                (IS_ADMIN ? '<button type="submit" class="btn btn-primary">保存修改</button>'
+                          : '<span class="meta">查看模式(编辑需管理员权限)</span>') +
+                '</div>',
+            '<p class="meta kb-foot-note">保存 = 写回 live 检索库(仅元数据;向量与所属库不变)。</p>',
+            '</form>'
+        ].join('');
+    }
+})();
+</script>
+{% endblock %}

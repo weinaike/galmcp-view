@@ -7,11 +7,6 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='tour.css') }}">
     {% block head %}{% endblock %}
-    <style>
-    .kb-badge { font-size: 0.75em; padding: 2px 6px; border-radius: 10px; margin-left: 2px; vertical-align: middle; }
-    .kb-badge.kb-on { background: #2d5a2d; color: #b6f0b6; }
-    .kb-badge.kb-off { background: #5a2d2d; color: #f0b6b6; }
-    </style>
 </head>
 <body class="{% block bodyclass %}{% endblock %}">
     <nav>
@@ -23,7 +18,8 @@
             {# <a href="/analysis/">残差图评价</a> #}
             <a href="/voting/">拟合投票</a>
             <a href="/statistics/{{ current_source or '' }}">投票统计</a>
-            <a href="/kb/review">KB 入库</a> <span id="kb-badge" class="kb-badge" title="visualRAG 知识库连接状态">KB:…</span>
+            <a href="/kb/review">KB 入库</a>
+            <a href="/kb/manage">KB 管理</a>
             <a href="/admin/sources">数据源管理</a>
             {% if sources|length > 1 %}
             <select class="nav-source-select" onchange="(function(val){var p=window.location.pathname;if(p.indexOf('/statistics')===0)window.location.href='/statistics/'+val;else window.location.href='/voting/'+val+'/';})(this.value)">
@@ -48,24 +44,5 @@
     </div>
     <script src="{{ url_for('static', filename='app.js') }}"></script>
     <script src="{{ url_for('static', filename='tour.js') }}"></script>
-    <script>
-    // visualRAG KB link status badge (polls the server-side proxy of /health).
-    (function () {
-        var b = document.getElementById('kb-badge');
-        if (!b) return;
-        function poll() {
-            fetch('/kb/health').then(function (r) { return r.json(); }).then(function (j) {
-                if (!j.enabled) { b.textContent = 'KB:未配置'; b.className = 'kb-badge kb-off'; return; }
-                if (j.connected) {
-                    var h = j.health || {};
-                    b.textContent = 'KB:在线 P' + (h.perfect_size != null ? h.perfect_size : '?') +
-                                    '/Q' + (h.problem_size != null ? h.problem_size : '?');
-                    b.className = 'kb-badge kb-on';
-                } else { b.textContent = 'KB:离线'; b.className = 'kb-badge kb-off'; }
-            }).catch(function () { b.textContent = 'KB:离线'; b.className = 'kb-badge kb-off'; });
-        }
-        poll(); setInterval(poll, 30000);
-    })();
-    </script>
 </body>
 </html>

@@ -268,7 +268,20 @@ function closeWorkingNoteModal(e) {
         if (!root) return;
         var btns = form.querySelectorAll('button');
         btns.forEach(function (b) { b.disabled = true; });
-        fetch(url, { method: 'POST', body: new FormData(form) })
+        var fd = new FormData(form);                 // capture BEFORE swapping the form away
+        // distill (VLM ~10-30s) and commit (DINOv2 forward + KB write) are slow:
+        // swap in an immediate loading state so the click clearly "took".
+        var slowMsg = '';
+        if (url.indexOf('/kb/ajax/distill') >= 0) {
+            slowMsg = '蒸馏中…VLM 调用约 10–30 秒，请勿关闭或刷新本页。';
+        } else if (url.indexOf('/kb/ajax/commit') >= 0) {
+            slowMsg = '入库中…正在提取特征并写入 live 检索库，请稍候。';
+        }
+        if (slowMsg) {
+            swapInto(root, '<div class="kb-panel"><div class="kb-panel-body kb-loading">' +
+                '<span class="kb-spinner"></span><span>' + slowMsg + '</span></div></div>');
+        }
+        fetch(url, { method: 'POST', body: fd })
             .then(function (r) { return r.text(); })
             .then(function (h) { swapInto(root, h); if (root && root.closest('#kb-modal')) dirty = true; })
             .catch(function () {
@@ -278,6 +291,9 @@ function closeWorkingNoteModal(e) {
     }
 
     window.kbPost = function (ev, url) { ev.preventDefault(); postForm(ev.target, url); return false; };
+    // POST a form to a specific URL from a button click — used by STATE A's two
+    // buttons: 开始蒸馏 -> /kb/ajax/distill (VLM, slow → spinner), 手动填写 -> /kb/ajax/manual (instant).
+    window.kbPostForm = function (btn, url) { var form = btn.closest('form'); if (form) postForm(form, url); };
     window.kbCommit = function (btn) {
         var form = btn.closest('form');
         if (!form) return;

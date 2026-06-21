@@ -7,7 +7,8 @@ HOST_PORT=35091
 CONTAINER_PORT=35091
 ANALYSIS_IMAGE_DIR="/home/wnk/code/s4g-p4-galfit/gadotti-0513/"
 CONTAINER_ANALYSIS_DIR="/data/analysis_images"
-DB_DIR="/home/wnk/code/view/data"
+VIEW_DIR="/home/wnk/code/view"
+DB_DIR="${VIEW_DIR}/data"
 GALFIT_PARENT1="/home/wnk/code/s4g-p4-galfit"
 GALFIT_PARENT2="/media/data/galfits"
 
@@ -60,6 +61,8 @@ docker run -d \
     ${AUX_MOUNT_FLAGS} \
     -v "${ANALYSIS_IMAGE_DIR}:${CONTAINER_ANALYSIS_DIR}:ro" \
     -v "${DB_DIR}:/app/db_data" \
+    -v "${VIEW_DIR}/templates:/app/templates:ro" \
+    -v "${VIEW_DIR}/static:/app/static:ro" \
     -e "GALFIT_PARENT_DIRS=${PARENT_DIRS}" \
     -e "ANALYSIS_IMAGE_DIR=${CONTAINER_ANALYSIS_DIR}" \
     -e "DATABASE=/app/db_data/galfit_viewer.db" \

@@ -8,15 +8,15 @@
      B  draft                       -> editable form (save / redistill / commit)
      C  committed                   -> read-only record
 
-   Field inputs are rendered DYNAMICALLY from the distilled dict keys
-   (desc__<key> / reason__<key>) — NOT hardcoded — so a changed/added VLM
-   schema field flows through automatically. GT labels are the fixed taxonomy
-   (they are expert ground-truth, not VLM output). #}
-{% macro kb_panel(source, galaxy_id, timestamp_dir, round_number, row, distilled, labels, taxonomy, flash, is_admin=false) %}
+   image_description / reasoning are markdown strings (the report's 阶段一 / 阶段三
+   transcribed by the KB /distill). Each renders as ONE textarea (editable) or a
+   pre-wrap block (read-only). GT labels are the fixed taxonomy (expert
+   ground-truth, not VLM output). #}
+{% macro kb_panel(source, galaxy_id, timestamp_dir, round_number, row, distilled, labels, taxonomy, flash, is_admin=false, can_distill=false) %}
 {% set status = row.status if row else None %}
 {% set has_distill = row and row.distilled_json %}
-{% set desc = distilled.get('image_description', {}) if distilled else {} %}
-{% set reasoning = distilled.get('reasoning', {}) if distilled else {} %}
+{% set desc = distilled.get('image_description', '') if distilled else '' %}
+{% set reasoning = distilled.get('reasoning', '') if distilled else '' %}
 <div class="kb-panel" data-sid="{{ row.id if row else '' }}">
     {% if flash %}<div class="kb-flash kb-flash-ok">{{ flash }}</div>{% endif %}
     {% if row and row.error %}<div class="kb-flash kb-flash-err">&#9888; {{ row.error }}</div>{% endif %}
@@ -24,8 +24,10 @@
     {% if not has_distill %}
     {# ---- STATE A: not distilled ---- #}
     <div class="kb-empty">
-        <p>该轮次尚未蒸馏。选择库后开始（VLM 调用，约数秒）。</p>
-        <form class="kb-form" onsubmit="return kbPost(event,'/kb/ajax/distill')">
+        {% if can_distill %}
+        {# ---- STATE A (has report): distill trigger ---- #}
+        <p>该轮次已有成分分析报告。选库后开始蒸馏(VLM 自动转录报告为教学样例)。</p>
+        <form class="kb-form">
             <input type="hidden" name="source" value="{{ source }}">
             <input type="hidden" name="galaxy_id" value="{{ galaxy_id }}">
             <input type="hidden" name="timestamp_dir" value="{{ timestamp_dir }}">
@@ -34,8 +36,42 @@
                 <label><input type="radio" name="library" value="problem" {% if not row or (row.library or 'problem') == 'problem' %}checked{% endif %}> problem（问题样本）</label>
                 <label><input type="radio" name="library" value="perfect" {% if row and row.library == 'perfect' %}checked{% endif %}> perfect（完美样本）</label>
             </div>
-            <button type="submit" class="btn btn-primary kb-big">&#129514; 开始蒸馏</button>
+            <div class="kb-panel-foot">
+                <button type="button" class="btn btn-primary kb-big" onclick="kbPostForm(this,'/kb/ajax/distill')">&#129514; 开始蒸馏</button>
+            </div>
         </form>
+        {% else %}
+        {# ---- STATE A (no report): manual editor — NO draft row is created until
+              the expert fills content and clicks 预入库. ---- #}
+        <p>该轮次<b>没有成分分析报告</b>(蒸馏所需的转录源),无法自动蒸馏。请手动填写,完成后点「预入库」创建草稿(<b>不会立即写库</b>)。</p>
+        <form class="kb-form" onsubmit="return kbPost(event,'/kb/ajax/preingest')">
+            <input type="hidden" name="source" value="{{ source }}">
+            <input type="hidden" name="galaxy_id" value="{{ galaxy_id }}">
+            <input type="hidden" name="timestamp_dir" value="{{ timestamp_dir }}">
+            <input type="hidden" name="round_number" value="{{ round_number }}">
+            <div class="kb-field">
+                <label>入库库</label>
+                <div class="kb-radio">
+                    <label><input type="radio" name="library" value="problem" checked> problem</label>
+                    <label><input type="radio" name="library" value="perfect"> perfect</label>
+                </div>
+            </div>
+            <div class="kb-field">
+                <label>最终形态标签（GT，可多选）</label>
+                <div class="kb-chips kb-chips-input">
+                    {% for t in taxonomy %}
+                    <label class="chip-check"><input type="checkbox" name="labels" value="{{ t }}"> {{ t }}</label>
+                    {% endfor %}
+                </div>
+            </div>
+            {{ kb_md_field('', '图像描述', 'image_description', false) }}
+            {{ kb_md_field('', '诊断推理', 'reasoning', false) }}
+            <div class="kb-panel-foot">
+                <button type="submit" class="btn btn-primary kb-big">&#128229; 预入库</button>
+            </div>
+            <p class="meta kb-foot-note">预入库 = 创建草稿(进入 /kb/review 待审);管理员「确认入库」才写入 live 检索库。</p>
+        </form>
+        {% endif %}
     </div>
 
     {% elif status == 'committed' %}
@@ -47,8 +83,8 @@
             {% if row.committed_kb_id %}<span class="meta">KB id: {{ row.committed_kb_id }}</span>{% endif %}
         </div>
         {% if labels %}<div class="kb-chips">{% for t in labels %}<span class="chip">{{ t }}</span>{% endfor %}</div>{% endif %}
-        {{ kb_fields(desc, '图像描述', 'desc__', true) }}
-        {{ kb_fields(reasoning, '诊断推理', 'reason__', true) }}
+        {{ kb_md_field(desc, '图像描述', 'image_description', true) }}
+        {{ kb_md_field(reasoning, '诊断推理', 'reasoning', true) }}
     </div>
 
     {% else %}
@@ -77,8 +113,8 @@
             </div>
         </div>
 
-        {{ kb_fields(desc, '图像描述', 'desc__', false) }}
-        {{ kb_fields(reasoning, '诊断推理', 'reason__', false) }}
+        {{ kb_md_field(desc, '图像描述', 'image_description', false) }}
+        {{ kb_md_field(reasoning, '诊断推理', 'reasoning', false) }}
 
         <div class="kb-panel-foot">
             <button type="button" class="btn btn-sm" onclick="kbRedistill(this)">&#128260; 重新蒸馏</button>
@@ -93,19 +129,15 @@
 </div>
 {% endmacro %}
 
-{# Render a sub-dict as labeled fields. prefix selects the form-field namespace
-   (desc__ / reason__) so the server can reconstruct each dict by prefix. #}
-{% macro kb_fields(d, title, prefix, readonly) %}
-{% if d %}
-<fieldset class="kb-fieldset">
+{# Render one markdown teaching field (image_description / reasoning) as a single
+   textarea (editable) or a pre-wrap block (read-only). `name` is the form-field
+   name the server reads verbatim (a markdown string). NB: NOT wrapped in
+   .kb-field (that is a 80px|1fr label grid); the legend is the label and the
+   control spans the full fieldset width. #}
+{% macro kb_md_field(value, title, name, readonly) %}
+<fieldset class="kb-fieldset kb-md-fieldset">
     <legend>{{ title }}</legend>
-    {% for k, v in d.items() %}
-    <div class="kb-field">
-        <label class="kb-field-key">{{ k | replace('_', ' ') }}</label>
-        {% if readonly %}<div class="kb-readonly-text">{{ v }}</div>
-        {% else %}<textarea name="{{ prefix ~ k }}" rows="4" class="input-textarea kb-textarea">{{ v }}</textarea>{% endif %}
-    </div>
-    {% endfor %}
+    {% if readonly %}<div class="kb-readonly-text kb-md-readonly">{{ value }}</div>
+    {% else %}<textarea name="{{ name }}" rows="14" class="input-textarea kb-textarea kb-md-textarea" placeholder="{{ title }}（markdown）">{{ value }}</textarea>{% endif %}
 </fieldset>
-{% endif %}
 {% endmacro %}

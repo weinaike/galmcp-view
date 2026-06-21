@@ -101,10 +101,16 @@ def health() -> dict | None:
 
 
 def distill(container_path: str, galaxy_id: str, timestamp_dir: str,
-            library: str, hint: str | None = None) -> dict | None:
-    """/distill one round -> {image_description, reasoning}, or None on failure."""
+            library: str, hint: str | None = None) -> tuple[dict | None, str | None]:
+    """/distill one round -> ({image_description, reasoning} | None, error_msg | None).
+
+    The error_msg carries the service's specific failure reason (e.g. "no
+    component_analysis report", "VLM did not return valid JSON") so the UI can
+    show it instead of a generic "蒸馏失败". Returns (None, msg) on failure,
+    (distillation, None) on success.
+    """
     if not enabled():
-        return None
+        return None, "KB 服务未配置(VISUALRAG_SERVICE_URL 为空)"
     archive, obj = archive_paths(container_path, galaxy_id, timestamp_dir)
     try:
         z = package_material(archive, obj)
@@ -114,22 +120,31 @@ def distill(container_path: str, galaxy_id: str, timestamp_dir: str,
             data={"library": library, **({"hint": hint} if hint else {})},
             timeout=DEFAULT_TIMEOUT,
         )
-        r.raise_for_status()
-        body = r.json()
-        if body.get("status") == "ok":
-            return body.get("distillation")
     except Exception as e:  # noqa: BLE001
-        log.warning("visualRAG /distill failed: %s", e)
-    return None
+        log.warning("visualRAG /distill request failed (%s/%s): %s", galaxy_id, timestamp_dir, e)
+        return None, f"请求 KB 服务失败: {e}"
+    if r.status_code != 200:
+        # surface the server's specific error (503 missing file / 422 bad VLM json / ...)
+        try:
+            detail = (r.json() or {}).get("error") or r.text.strip()[:300]
+        except ValueError:
+            detail = r.text.strip()[:300]
+        log.warning("visualRAG /distill %s/%s -> HTTP %s: %s",
+                    galaxy_id, timestamp_dir, r.status_code, detail)
+        return None, f"KB 服务返回 {r.status_code}: {detail}"
+    body = r.json()
+    if body.get("status") == "ok":
+        return body.get("distillation"), None
+    return None, body.get("error") or "KB 服务返回未知错误"
 
 
 def ingest(container_path: str, galaxy_id: str, timestamp_dir: str,
            payload: dict) -> dict | None:
     """Commit one sample to the live KB via /ingest.
 
-    ``payload`` = {sample_id, obj_id, library, final_labels(list), image_description(dict),
-    reasoning(dict), archive_path?}. Returns the committed {sample_id, library, size, image}
-    or None on failure.
+    ``payload`` = {sample_id, obj_id, library, final_labels(list),
+    image_description(markdown str), reasoning(markdown str), archive_path?}.
+    Returns the committed {sample_id, library, size, image} or None on failure.
     """
     if not enabled():
         return None
@@ -142,8 +157,8 @@ def ingest(container_path: str, galaxy_id: str, timestamp_dir: str,
             "obj_id": payload.get("obj_id", ""),
             "library": payload["library"],
             "final_labels": json.dumps(payload.get("final_labels") or []),
-            "image_description": json.dumps(payload.get("image_description") or {}),
-            "reasoning": json.dumps(payload.get("reasoning") or {}),
+            "image_description": json.dumps(payload.get("image_description") or ""),
+            "reasoning": json.dumps(payload.get("reasoning") or ""),
         }
         if payload.get("archive_path"):
             data["archive_path"] = payload["archive_path"]
@@ -160,3 +175,91 @@ def ingest(container_path: str, galaxy_id: str, timestamp_dir: str,
     except Exception as e:  # noqa: BLE001
         log.warning("visualRAG /ingest failed: %s", e)
     return None
+
+
+# ── live-KB management (read / update-metadata / delete) ───────────────────
+#
+# These browse + maintain ALREADY-ingested entries (vs /distill + /ingest above,
+# which create them). All best-effort: any failure returns None so the
+# management page degrades gracefully. No payload packaging — pure HTTP to the
+# service's /kb/entries routes.
+
+# Metadata fields an expert may edit (must match the server's editable set).
+EDITABLE_FIELDS = ("final_labels", "image_description", "reasoning", "obj_id")
+
+
+def list_entries(library=None, q=None, limit=50, offset=0):
+    """GET /kb/entries -> {library, total, offset, limit, entries[...]} or None."""
+    if not enabled():
+        return None
+    try:
+        params = {"limit": limit, "offset": offset}
+        if library:
+            params["library"] = library
+        if q:
+            params["q"] = q
+        r = requests.get(f"{_service_url()}/kb/entries", params=params, timeout=30)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:  # noqa: BLE001
+        log.warning("visualRAG /kb/entries failed: %s", e)
+        return None
+
+
+def get_entry(library, sample_id):
+    """GET /kb/entries/{lib}/{id} -> full record, or None if absent/unreachable."""
+    if not enabled():
+        return None
+    try:
+        r = requests.get(f"{_service_url()}/kb/entries/{library}/{sample_id}",
+                         timeout=30)
+        if r.status_code == 404:
+            return None
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:  # noqa: BLE001
+        log.warning("visualRAG /kb/entries get failed: %s", e)
+        return None
+
+
+def update_entry(library, sample_id, patch):
+    """PATCH /kb/entries/{lib}/{id} (JSON; only EDITABLE_FIELDS) -> updated
+    record, or None on failure. ``patch`` may carry extra keys; they're filtered."""
+    if not enabled():
+        return None
+    body = {k: v for k, v in (patch or {}).items()
+            if k in EDITABLE_FIELDS and v is not None}
+    try:
+        r = requests.patch(f"{_service_url()}/kb/entries/{library}/{sample_id}",
+                           json=body, timeout=DEFAULT_TIMEOUT)
+        if r.status_code == 404:
+            return None
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:  # noqa: BLE001
+        log.warning("visualRAG /kb/entries patch failed: %s", e)
+        return None
+
+
+def delete_entry(library, sample_id):
+    """DELETE /kb/entries/{lib}/{id} -> {status, sample_id, library, size}, or None."""
+    if not enabled():
+        return None
+    try:
+        r = requests.delete(f"{_service_url()}/kb/entries/{library}/{sample_id}",
+                            timeout=DEFAULT_TIMEOUT)
+        if r.status_code == 404:
+            return None
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:  # noqa: BLE001
+        log.warning("visualRAG /kb/entries delete failed: %s", e)
+        return None
+
+
+def image_url(library, sample_id):
+    """The service URL of an entry's comparison PNG (for server-side fetch in the
+    proxy route; the browser reaches the view app, not the host service)."""
+    if not enabled() or not sample_id:
+        return None
+    return f"{_service_url()}/images/{library}/{sample_id}"
