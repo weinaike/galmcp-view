@@ -23,7 +23,8 @@
 ├── config.py           # 配置解析（多数据源、数据库路径）
 ├── database.py         # SQLite 初始化和迁移
 ├── scanner.py          # 扫描拟合结果目录，解析 summary.md
-├── start.sh            # Docker 构建和启动脚本
+├── start.sh            # Docker 构建和启动脚本（仅容器）
+├── start_all.sh        # 联合启动 + KB 服务管理（start/restart/stop/status）
 ├── Dockerfile          # Docker 镜像定义
 ├── requirements.txt    # Python 依赖
 ├── templates/          # Jinja2 模板
@@ -57,11 +58,30 @@ SOURCES=(
 
 ### 2. 启动
 
+**推荐用 `start_all.sh`** —— 联合启动 visualRAG KB 服务（宿主 GPU 上的 DINOv2 + FAISS）+ 本标注容器，并自动经 `host.docker.internal` 把容器指向 KB 服务（KB 蒸馏/入库按钮才可用）：
+
 ```bash
-bash start.sh
+bash start_all.sh        # = start：起 KB 服务（已健康则复用）+ 起容器
 ```
 
-服务默认运行在 `http://127.0.0.1:35091`。
+`start_all.sh` 同时是 visualRAG KB 服务的**后台服务管理器**（PID 文件 `visualrag_server.pid`，`setsid`+`nohup` 完全脱离会话，存活于启动它的 shell）：
+
+| 子命令 | 作用 |
+|--------|------|
+| `start_all.sh`（或 `start`） | 起 KB 服务（健康则复用）+ 起容器 |
+| `start_all.sh restart` | **仅重启 KB 服务**（reload KB / 部署新服务代码；容器不动，经 `host.docker.internal` 自动重连）。清库或改了服务代码后用这个 |
+| `start_all.sh stop` | 停 KB 服务 |
+| `start_all.sh status` | 查看 KB 健康 + PID |
+
+> KB 服务把 FAISS 索引常驻内存，所以**磁盘上的改动（如 visualRAG 的 `reset_kb.py` 清库、或重建索引）必须 `restart` 后才会被服务加载**。
+
+如果**不需要** visualRAG KB 联动（只跑标注容器），直接用 `start.sh`：
+
+```bash
+bash start.sh            # 仅起容器，KB 联动关闭（badge 红、入库按钮 no-op）
+```
+
+标注容器默认运行在 `http://127.0.0.1:35091`；visualRAG KB 服务在 `http://127.0.0.1:8765`。
 
 ### 3. 使用
 
