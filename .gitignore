@@ -5,3 +5,5 @@ db_data
 data
 # runtime logs (e.g. the visualRAG KB server nohup log from start_all.sh)
 *.log
+# runtime pidfile written by start_all.sh's service management
+*.pid
