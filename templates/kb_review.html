@@ -19,14 +19,20 @@
                     {% endfor %}
                 </select>
                 <button type="button" class="btn btn-sm btn-primary"
-                        onclick="var s=document.getElementById('preingest-src').value;
-                                 if(confirm('对 '+s+' 批量预蒸馏？')){var f=document.createElement('form');f.method='POST';f.action='/admin/kb/preingest/'+s;document.body.appendChild(f);f.submit();}">
+                        onclick="kbBatchPreingest(document.getElementById('preingest-src').value)">
                     批量预入库
                 </button>
             </form>
             {% endif %}
         </div>
     </div>
+
+    {% if batch_summary %}
+    <div class="kb-batch-summary{% if batch_summary.fail %} kb-batch-summary-warn{% endif %}">
+        批量预入库完成：✅ 蒸馏 {{ batch_summary.ok }} 条，⏭ 跳过 {{ batch_summary.skip }} 条（已成功 / 已入库）
+        {% if batch_summary.fail %}，⚠ 失败 {{ batch_summary.fail }} 条（见列表 ⚠ 徽章，再次「批量预入库」可重试覆盖）{% endif %}。
+    </div>
+    {% endif %}
 
     {# --- summary stats --- #}
     <div class="kb-stats">
@@ -92,8 +98,12 @@
                         <img src="/image/{{ r.source }}/{{ r.galaxy_id }}/{{ r.timestamp_dir }}" alt="" loading="lazy">
                     </td>
                     <td class="kb-cell-id">
-                        <div class="kb-galaxy">{{ r.galaxy_id }}</div>
-                        <div class="meta">r{{ r.round_number if r.round_number is not none else '—' }} · {{ r.source }}</div>
+                        <a class="kb-galaxy-link"
+                           href="{{ url_for('sample_detail', source=r.source, galaxy_id=r.galaxy_id) }}#round-{{ r.round_number }}"
+                           title="跳转到星系详情 · 轮次 {{ r.round_number if r.round_number is not none else '—' }}">
+                            <div class="kb-galaxy">{{ r.galaxy_id }}</div>
+                            <div class="meta">r{{ r.round_number if r.round_number is not none else '—' }} · {{ r.source }}</div>
+                        </a>
                     </td>
                     <td>{% if r.library %}<span class="chip chip-lib chip-lib-{{ r.library }}">{{ r.library }}</span>{% endif %}</td>
                     <td>
@@ -129,6 +139,16 @@
 <div class="modal-overlay" id="kb-modal" onclick="kbCloseModal(event)">
     <div class="modal-content kb-modal-content" onclick="event.stopPropagation()">
         <div class="modal-body"><div id="kb-modal-body"></div></div>
+    </div>
+</div>
+
+{# --- batch pre-ingest blocking overlay (shown on submit, cleared by the redirect reload) --- #}
+<div class="kb-batch-overlay" id="kb-batch-overlay">
+    <div class="kb-batch-card">
+        <span class="kb-spinner"></span>
+        <p class="kb-batch-title">批量预蒸馏中…</p>
+        <p class="kb-batch-prog" id="kb-batch-progress">准备中…</p>
+        <p class="meta">正在对该数据源的样本调用 VLM（每个约 10–30 秒）。期间可关闭本页，后端继续处理；稍后在 /kb/review 查看结果（勿重启 KB 服务）。</p>
     </div>
 </div>
 {% endblock %}

@@ -240,6 +240,61 @@ def _parse_best_turn(galaxy_id, base_path):
     return m.group(1) if m else None
 
 
+# Relative χ²/ν drop a diagnosis round must produce at the NEXT round to be
+# admitted as a verified-diagnosis teaching case (matches the skill's 5% margin:
+# only rounds whose report actually helped get distilled, not drift/noise).
+KB_IMPROVED_MARGIN = 0.05
+
+
+def _stage_distill(db, source, galaxy_id, round_row, library, distilled, err):
+    """Upsert one /distill result into kb_staging AND commit it immediately.
+    Returns 'ok' | 'fail' | 'skip'.
+
+    'skip' = a successful (or committed) draft already exists for this
+    (source, galaxy, ts) — re-running batch leaves finished rows alone. FAILED
+    drafts (error, no distilled content) are retried+overwritten, so transient
+    VLM/KB failures self-heal on the next batch run instead of sticking as empty
+    rows. ``library`` ('perfect' | 'problem') is chosen by the caller's policy.
+
+    Commits per row (not once at the end): an interruption (browser closed,
+    proxy timeout) keeps every draft already distilled and never wastes a VLM
+    call on a result that got rolled back. Under WAL the committed rows are
+    visible to other connections right away — so another tab polling /kb/review
+    sees drafts appear one by one during the batch."""
+    ts = round_row['timestamp_dir']
+    existing = db.execute(
+        'SELECT status, distilled_json FROM kb_staging '
+        'WHERE source=? AND galaxy_id=? AND timestamp_dir=?',
+        (source, galaxy_id, ts)).fetchone()
+    if existing and (existing['status'] == 'committed' or existing['distilled_json']):
+        return 'skip'
+    sample_id = f"{galaxy_id}_{ts}"
+    if distilled:
+        db.execute(
+            'INSERT INTO kb_staging '
+            '(sample_id, source, galaxy_id, round_number, timestamp_dir, library, '
+            'distilled_json, status, error) '
+            'VALUES (?,?,?,?,?,?,?, \'draft\', NULL) '
+            'ON CONFLICT(source, galaxy_id, timestamp_dir) DO UPDATE SET '
+            'library=excluded.library, distilled_json=excluded.distilled_json, '
+            "status='draft', error=NULL, updated_at=datetime('now')",
+            (sample_id, source, galaxy_id, round_row['round_number'], ts,
+             library, json.dumps(distilled, ensure_ascii=False)))
+        db.commit()
+        return 'ok'
+    db.execute(
+        'INSERT INTO kb_staging '
+        '(sample_id, source, galaxy_id, round_number, timestamp_dir, library, '
+        'status, error) '
+        "VALUES (?,?,?,?,?,?, 'draft', ?) "
+        'ON CONFLICT(source, galaxy_id, timestamp_dir) DO UPDATE SET '
+        "status='draft', error=excluded.error, updated_at=datetime('now')",
+        (sample_id, source, galaxy_id, round_row['round_number'], ts,
+         library, err or '蒸馏失败（KB 服务或 VLM 错误）'))
+    db.commit()
+    return 'fail'
+
+
 
 
 @app.route('/')
@@ -1040,20 +1095,45 @@ def kb_review():
     except Exception:  # noqa: BLE001
         kb_health = None
 
+    # batch pre-ingest result summary (set by /admin/kb/preingest on redirect)
+    batch_summary = None
+    if request.args.get('batch_ok') is not None:
+        try:
+            batch_summary = {
+                'ok': int(request.args.get('batch_ok') or 0),
+                'skip': int(request.args.get('batch_skip') or 0),
+                'fail': int(request.args.get('batch_fail') or 0),
+            }
+        except (TypeError, ValueError):
+            batch_summary = None
+
     return render_template('kb_review.html', items=items, stats=stats,
                            kb_health=kb_health,
                            filters={'status': f_status, 'library': f_library,
                                     'source': f_source, 'q': f_q},
                            sources=_get_sources_from_db(),
-                           taxonomy=TAXONOMY)
+                           taxonomy=TAXONOMY, batch_summary=batch_summary)
 
 
 @app.route('/admin/kb/preingest/<source>', methods=['POST'])
 @login_required
 def kb_preingest(source):
-    """Batch pre-ingest (path ①): distill each sample's best (last success) round
-    in a source into kb_staging drafts. Synchronous MVP; all-rounds/async is a
-    follow-up. The per-round resident button (path ③) covers other rounds."""
+    """Batch pre-ingest (path ①): distill a source's teaching cases into kb_staging
+    drafts, following the skill's two-library selection (selection_criteria.md):
+
+      * PERFECT library — an expert-voted acceptable fit (is_perfect=1) -> distill
+        its best_round into the perfect library (V_orig morphology reference).
+      * PROBLEM library — each VERIFIED-DIAGNOSIS round -> distill into the problem
+        library (V_dual residual teaching). Round n qualifies iff it has a
+        component_analysis report, a successor round n+1 exists, and n+1's χ²/ν
+        dropped by >= KB_IMPROVED_MARGIN — i.e. the report's diagnosis actually
+        helped. Reports that didn't help (wrong/noise diagnosis) are NOT distilled.
+
+    Hard precondition: EVERY distilled round must carry a component_analysis report
+    (the /distill transcription source) — gated via _round_can_distill, same check
+    the per-round UI uses. Rounds without one are skipped (the resident manual-fill
+    path covers them). Retry semantics via _stage_distill: successful/committed rows
+    are skipped, failed rows are retried. Summary counts -> /kb/review query string."""
     if not session.get('is_admin'):
         abort(403)
     import kb_client
@@ -1062,33 +1142,77 @@ def kb_preingest(source):
     samples = db.execute(
         'SELECT id, galaxy_id FROM samples WHERE source = ? ORDER BY galaxy_id',
         (source,)).fetchall()
-    n_ok = n_skip = 0
-    for s in samples:
-        rnd = db.execute(
-            "SELECT round_number, timestamp_dir FROM rounds WHERE sample_id = ? "
-            "AND round_status = 'success' ORDER BY round_number DESC LIMIT 1",
-            (s['id'],)).fetchone()
-        if not rnd:
-            continue
-        ts = rnd['timestamp_dir']
-        exists = db.execute(
-            'SELECT 1 FROM kb_staging WHERE source=? AND galaxy_id=? AND timestamp_dir=?',
-            (source, s['galaxy_id'], ts)).fetchone()
-        if exists:
-            n_skip += 1
-            continue
-        distilled, _err = kb_client.distill(container_path, s['galaxy_id'], ts, library='problem')
-        db.execute(
-            'INSERT INTO kb_staging '
-            '(sample_id, source, galaxy_id, round_number, timestamp_dir, library, distilled_json, status) '
-            'VALUES (?,?,?,?,?,?,?, \'draft\')',
-            (f"{s['galaxy_id']}_{ts}", source, s['galaxy_id'], rnd['round_number'], ts,
-             'problem' if distilled else None,
-             json.dumps(distilled, ensure_ascii=False) if distilled else None))
-        if distilled:
+    n_ok = n_skip = n_fail = 0
+
+    def tally(res):
+        nonlocal n_ok, n_skip, n_fail
+        if res == 'ok':
             n_ok += 1
-    db.commit()
-    return redirect(url_for('kb_review'))
+        elif res == 'fail':
+            n_fail += 1
+        else:
+            n_skip += 1
+
+    for s in samples:
+        sid, galaxy = s['id'], s['galaxy_id']
+        rows = db.execute(
+            "SELECT round_number, timestamp_dir, chi_squared_nu, round_status "
+            "FROM rounds WHERE sample_id=? ORDER BY round_number", (sid,)).fetchall()
+        by_num = {r['round_number']: r for r in rows}
+
+        # --- PERFECT: expert-confirmed best round -> perfect library ---
+        v = db.execute(
+            "SELECT best_round FROM votes WHERE sample_id=? AND is_perfect=1 "
+            "AND best_round IS NOT NULL ORDER BY updated_at DESC LIMIT 1",
+            (sid,)).fetchone()
+        if v:
+            rnd = by_num.get(v['best_round'])
+            if rnd and rnd['round_status'] == 'success' and \
+                    _round_can_distill(source, galaxy, rnd['timestamp_dir']):
+                distilled, err = kb_client.distill(
+                    container_path, galaxy, rnd['timestamp_dir'], library='perfect')
+                tally(_stage_distill(db, source, galaxy, rnd, 'perfect', distilled, err))
+
+        # --- PROBLEM: each verified-diagnosis round -> problem library ---
+        for r in rows:
+            n = r['round_number']
+            if r['round_status'] != 'success':
+                continue
+            if not _round_can_distill(source, galaxy, r['timestamp_dir']):
+                continue
+            nxt = by_num.get(n + 1)
+            chi_n = r['chi_squared_nu']
+            chi_n1 = nxt['chi_squared_nu'] if nxt else None
+            if chi_n is None or chi_n1 is None or chi_n <= 0:
+                continue
+            if (chi_n - chi_n1) / chi_n < KB_IMPROVED_MARGIN:
+                continue
+            distilled, err = kb_client.distill(
+                container_path, galaxy, r['timestamp_dir'], library='problem')
+            tally(_stage_distill(db, source, galaxy, r, 'problem', distilled, err))
+
+    # _stage_distill commits each row as it goes, so drafts survive an interruption
+    # and are visible to other tabs (WAL) while this loop still runs.
+    return redirect(url_for('kb_review', batch_ok=n_ok, batch_skip=n_skip, batch_fail=n_fail))
+
+
+@app.route('/admin/kb/preingest/progress')
+@login_required
+def kb_preingest_progress():
+    """Live progress for the batch overlay: how many drafts the source already has
+    in kb_staging (climbs as the running batch commits each row) and how many
+    samples the source holds. Read-only counts — login_required, no admin gate.
+    ``staged`` is total drafts for the source (incl. prior runs), not run-scoped."""
+    src = (request.args.get('src') or '').strip()
+    if not src:
+        return jsonify({'staged': 0, 'total': 0})
+    db = get_db()
+    total = db.execute(
+        'SELECT COUNT(*) c FROM samples WHERE source=?', (src,)).fetchone()['c']
+    staged = db.execute(
+        "SELECT COUNT(*) c FROM kb_staging WHERE source=? AND status='draft'",
+        (src,)).fetchone()['c']
+    return jsonify({'staged': staged, 'total': total})
 
 
 @app.route('/kb/stage/<source>/<galaxy_id>/<timestamp_dir>', methods=['POST'])

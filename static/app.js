@@ -348,6 +348,50 @@ function closeWorkingNoteModal(e) {
     };
 })();
 
+// --- batch pre-ingest (admin) ---
+// The /admin/kb/preingest POST is synchronous and slow (one VLM call per sample,
+// ~10-30s each; a whole source takes minutes). Submit it via fetch (no navigation
+// so the page stays alive) and poll /progress every few seconds to show drafts
+// accumulating. Polling is BOUNDED: stop() runs the instant the POST resolves or
+// rejects, and dies with the tab if closed — it never polls forever.
+window.kbBatchPreingest = function (src) {
+    if (!src) return;
+    if (!confirm('对 ' + src + ' 批量预蒸馏？VLM 每样本约 10–30 秒。期间可关闭本页，后端会继续处理；稍后在 /kb/review 查看结果（勿重启 KB 服务）。')) return;
+    var ov = document.getElementById('kb-batch-overlay');
+    var progEl = document.getElementById('kb-batch-progress');
+    if (ov) ov.classList.add('active');
+    if (progEl) progEl.textContent = '准备中…';
+    var timer = null;
+    function stop() { if (timer) { clearInterval(timer); timer = null; } }
+
+    // poll the live draft count only while the batch POST is in flight
+    timer = setInterval(function () {
+        fetch('/admin/kb/preingest/progress?src=' + encodeURIComponent(src), { cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (p) {
+                if (progEl && p) progEl.textContent =
+                    '已生成草稿 ' + (p.staged || 0) + ' 条（源共 ' + (p.total || '?') + ' 个样本）';
+            }).catch(function () { /* a missed poll is harmless */ });
+    }, 4000);
+
+    fetch('/admin/kb/preingest/' + encodeURIComponent(src), { method: 'POST' })
+        .then(function (r) {
+            stop();
+            if (r.ok) {
+                // POST 302-> /kb/review?batch_ok=... : follow it (lands on the summary banner).
+                window.location.href = r.url;
+            } else {
+                if (ov) ov.classList.remove('active');
+                alert('批量预蒸馏出错（HTTP ' + r.status + '）。已完成的草稿已保存，请在 /kb/review 查看。');
+            }
+        })
+        .catch(function () {
+            stop();
+            if (ov) ov.classList.remove('active');
+            alert('批量预蒸馏请求失败（网络中断？）。已完成的草稿已保存，请在 /kb/review 查看。');
+        });
+};
+
 // --- Image Lightbox ---
 
 (function() {
