@@ -110,7 +110,7 @@
                     </div>
                     {% if r.fit_log %}
                     <div class="fitlog-section">
-                        <h4>{% if fitting_type == 'multi-band' %}run.log{% else %}fit.log{% endif %}</h4>
+                        <h4>{% if fitting_type == 'multi-band' %}component_attributes.txt{% else %}fit.log{% endif %}</h4>
                         <pre class="fitlog-content">{{ r.fit_log }}</pre>
                     </div>
                     {% endif %}
@@ -143,7 +143,7 @@
             {# fit.log for rounds without a comparison image (e.g. failed runs) #}
             {% if r.fit_log and not r.has_png %}
             <div class="fitlog-section">
-                <h4>{% if fitting_type == 'multi-band' %}run.log{% else %}fit.log{% endif %}</h4>
+                <h4>{% if fitting_type == 'multi-band' %}component_attributes.txt{% else %}fit.log{% endif %}</h4>
                 <pre class="fitlog-content">{{ r.fit_log }}</pre>
             </div>
             {% endif %}

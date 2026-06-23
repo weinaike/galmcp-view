@@ -435,8 +435,10 @@ def sample_detail(source, galaxy_id):
         round_fitting_type = r['fitting_type'] if r['fitting_type'] else fitting_type
         round_data_dir = 'output' if round_fitting_type == 'multi-band' else 'archives'
 
-        # Find fit log
-        log_name = 'run.log' if round_fitting_type == 'multi-band' else 'fit.log'
+        # Find fit log / component attributes.
+        # 单波段读取 fit.log；多波段读取 component_attributes.txt
+        # （run.log 充斥 astropy 警告与单位换算日志，对评估拟合帮助不大）。
+        log_name = 'component_attributes.txt' if round_fitting_type == 'multi-band' else 'fit.log'
         fit_log_path = os.path.join(base_path, galaxy_id, round_data_dir, r['timestamp_dir'], log_name)
         fit_log_content = ''
         if os.path.isfile(fit_log_path):
