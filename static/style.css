@@ -1012,8 +1012,8 @@ body.detail-page .container { max-width: none; }
 .kb-cell-actions { white-space: nowrap; }
 .kb-cell-actions form { display: inline; }
 
-/* review modal wider for the editor */
-.modal-content.kb-modal-content { max-width: 780px; width: 92vw; }
+/* review modal: 90% viewport, side-by-side (image left / form right) */
+.modal-content.kb-modal-content { max-width: 1700px; width: 90vw; }
 
 /* Distill/commit loading state (shown immediately on click while the VLM /
    DINOv2 call runs, so the click clearly "took"). */
@@ -1056,7 +1056,28 @@ body.detail-page .container { max-width: none; }
 .kb-batch-card .kb-spinner { width: 22px; height: 22px; margin: 0 auto 0.8rem; display: block; }
 .kb-batch-title { font-weight: 600; margin: 0 0 0.3rem; }
 .kb-batch-prog { margin: 0 0 0.6rem; font-variant-numeric: tabular-nums; }
-#kb-modal-body { max-height: 80vh; overflow: auto; }
+/* side-by-side: galaxy image left / editor form right. The form column
+   scrolls independently (calc against the 85vh modal cap minus padding),
+   so the image stays put while a long form is read/edited. */
+#kb-modal-body { overflow: hidden; }
 #kb-modal-body:empty { display: none; }
-.kb-modal-img { margin-bottom: 0.5rem; text-align: center; }
-.kb-modal-img img { max-width: 100%; max-height: 42vh; object-fit: contain; border-radius: 6px; }
+.kb-split { display: flex; gap: 1.25rem; width: 100%; align-items: flex-start; }
+.kb-split-img {
+    flex: 0 0 42%; max-width: 42%;
+    display: flex; justify-content: center; align-items: flex-start;
+}
+.kb-split-img img {
+    max-width: 100%; max-height: calc(85vh - 4rem);
+    object-fit: contain; border-radius: 6px; border: 1px solid var(--border);
+    cursor: zoom-in;
+}
+.kb-split-form {
+    flex: 1 1 58%; min-width: 0;
+    max-height: calc(85vh - 4rem); overflow-y: auto; padding-right: 6px;
+}
+/* narrow screens: stack image over form again */
+@media (max-width: 720px) {
+    .kb-split { flex-direction: column; }
+    .kb-split-img, .kb-split-form { flex: 1 1 auto; max-width: none; max-height: none; }
+    .kb-split-img img { max-height: 40vh; }
+}

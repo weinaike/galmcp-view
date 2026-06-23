@@ -63,13 +63,25 @@ def package_material(archive_dir: str, obj_dir: str) -> bytes:
         if feedmes:
             with open(feedmes[0], encoding="utf-8", errors="replace") as f:
                 zf.writestr(os.path.basename(feedmes[0]), _normalize_feedme_paths(f.read()))
-        for pat in ("*_galfit.fits", "galfit.[0-9]*",
-                    "*_galfit_comparison.png", "*component_analysis*.md"):
+        # GALFIT model cube + comparison PNG + summary: accept BOTH naming
+        # conventions — JWST <obj>_galfit.fits / <obj>_galfit_comparison.png AND
+        # gadotti galfit.fit / galfit_comparison.png. The old *_galfit.* suffix
+        # globs silently dropped the gadotti files, so the zip arrived without the
+        # FITS and /ingest raised FileNotFoundError. galfit_summary.md is staged
+        # too so the server can read the runner-declared output name (rename-safe)
+        # rather than guess the filename. Dedup by basename.
+        gathered: dict[str, str] = {}
+        for pat in ("*_galfit.fits", "*_galfit.fit", "galfit.fits", "galfit.fit",
+                    "galfit.[0-9]*", "*galfit_comparison*.png",
+                    "*galfit_summary.md", "galfit_summary.md",
+                    "*component_analysis*.md"):
             for f in glob.glob(os.path.join(archive_dir, pat)):
-                try:
-                    zf.write(f, os.path.basename(f))
-                except OSError as e:
-                    log.warning("skip unreadable %s: %s", f, e)
+                gathered[f] = os.path.basename(f)
+        for f, name in gathered.items():
+            try:
+                zf.write(f, name)
+            except OSError as e:
+                log.warning("skip unreadable %s: %s", f, e)
         for pat in ("mask_*.fits", "sigma_*.fits"):
             for f in glob.glob(os.path.join(obj_dir, pat)):
                 try:
@@ -139,15 +151,18 @@ def distill(container_path: str, galaxy_id: str, timestamp_dir: str,
 
 
 def ingest(container_path: str, galaxy_id: str, timestamp_dir: str,
-           payload: dict) -> dict | None:
+           payload: dict) -> tuple[dict | None, str | None]:
     """Commit one sample to the live KB via /ingest.
 
     ``payload`` = {sample_id, obj_id, library, final_labels(list),
     image_description(markdown str), reasoning(markdown str), archive_path?}.
-    Returns the committed {sample_id, library, size, image} or None on failure.
+    Returns ``(committed {sample_id, library, size, image}, None)`` on success or
+    ``(None, error_msg)`` on failure. The error_msg carries the service's specific
+    reason (e.g. "No *_galfit.fits ...", "sample_id already exists") so the UI can
+    show it instead of a generic "入库失败".
     """
     if not enabled():
-        return None
+        return None, "KB 服务未配置(VISUALRAG_SERVICE_URL 为空)"
     archive, obj = archive_paths(container_path, galaxy_id, timestamp_dir)
     try:
         import json
@@ -157,6 +172,7 @@ def ingest(container_path: str, galaxy_id: str, timestamp_dir: str,
             "obj_id": payload.get("obj_id", ""),
             "library": payload["library"],
             "final_labels": json.dumps(payload.get("final_labels") or []),
+            "component_signature": json.dumps(payload.get("component_signature") or []),
             "image_description": json.dumps(payload.get("image_description") or ""),
             "reasoning": json.dumps(payload.get("reasoning") or ""),
         }
@@ -168,13 +184,21 @@ def ingest(container_path: str, galaxy_id: str, timestamp_dir: str,
             data=data,
             timeout=DEFAULT_TIMEOUT,
         )
-        r.raise_for_status()
-        body = r.json()
-        if body.get("status") == "ok":
-            return body
     except Exception as e:  # noqa: BLE001
-        log.warning("visualRAG /ingest failed: %s", e)
-    return None
+        log.warning("visualRAG /ingest request failed (%s/%s): %s", galaxy_id, timestamp_dir, e)
+        return None, f"请求 KB 服务失败: {e}"
+    if r.status_code != 200:
+        try:
+            detail = (r.json() or {}).get("error") or r.text.strip()[:300]
+        except ValueError:
+            detail = r.text.strip()[:300]
+        log.warning("visualRAG /ingest %s/%s -> HTTP %s: %s",
+                    galaxy_id, timestamp_dir, r.status_code, detail)
+        return None, f"KB 服务返回 {r.status_code}: {detail}"
+    body = r.json()
+    if body.get("status") == "ok":
+        return body, None
+    return None, body.get("error") or "KB 服务返回未知错误"
 
 
 # ── live-KB management (read / update-metadata / delete) ───────────────────
@@ -185,7 +209,8 @@ def ingest(container_path: str, galaxy_id: str, timestamp_dir: str,
 # service's /kb/entries routes.
 
 # Metadata fields an expert may edit (must match the server's editable set).
-EDITABLE_FIELDS = ("final_labels", "image_description", "reasoning", "obj_id")
+EDITABLE_FIELDS = ("final_labels", "image_description", "reasoning", "obj_id",
+                   "component_signature")
 
 
 def list_entries(library=None, q=None, limit=50, offset=0):

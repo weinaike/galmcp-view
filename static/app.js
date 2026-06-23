@@ -321,16 +321,21 @@ function closeWorkingNoteModal(e) {
     };
 
     // --- review modal (kb_review page) ---
-    // Shows the galaxy comparison image on top, the editor panel below.
+    // Shows the galaxy comparison image on the left, the editor panel on the right.
     window.kbOpenBySid = function (sid, source, galaxy, ts) {
         var modal = document.getElementById('kb-modal');
         var body = document.getElementById('kb-modal-body');
         if (!modal || !body) return;
         dirty = false;
+        // side-by-side: image on the left, editor panel on the right (the
+        // panel scrolls independently via .kb-split-form when the form is long).
         var imgHtml = (source && galaxy && ts)
-            ? '<div class="kb-modal-img"><img src="/image/' + enc(source) + '/' + enc(galaxy) + '/' + enc(ts) + '" loading="lazy"></div>'
+            ? '<aside class="kb-split-img"><img src="/image/' + enc(source) + '/' + enc(galaxy) + '/' + enc(ts) + '" loading="lazy" onclick="kbOpenLightbox(this.src)"></aside>'
             : '';
-        body.innerHTML = imgHtml + '<div class="kb-modal-panel" data-kb-root></div>';
+        body.innerHTML =
+            '<div class="kb-split">' + imgHtml +
+            '<div class="kb-split-form"><div class="kb-modal-panel" data-kb-root></div></div>' +
+            '</div>';
         var panelRoot = body.querySelector('.kb-modal-panel');
         modal.classList.add('active');
         swapInto(panelRoot, loadingPanel(''));
@@ -419,6 +424,11 @@ window.kbBatchPreingest = function (src) {
         lbImg.style.transform = '';
         overlay.classList.add('active');
     }
+
+    // Expose so modal images can open the lightbox too: the auto-binder below
+    // only covers detail-page images, and modal images are injected after
+    // DOMContentLoaded (so the binder never sees them). Resets zoom/pan per open.
+    window.kbOpenLightbox = openLightbox;
 
     // Bind to all detail-page images
     document.addEventListener('DOMContentLoaded', function() {

@@ -3,13 +3,12 @@
 
 {% block head %}
 <style>
-/* KB-management modal: wider (for the comparison PNG + markdown editors),
-   taller editable textareas, click-to-zoom comparison image. Scoped so the
-   shared .kb-modal-content (used by /kb/review) is untouched. */
-#kbm-modal .modal-content.kb-modal-content { max-width: 1000px; width: 95vw; }
-.kbm-comparison-wrap { margin: 0 0 0.6rem; text-align: center; }
-.kbm-comparison { max-width: 100%; max-height: 46vh; cursor: zoom-in;
-                  border-radius: 6px; border: 1px solid var(--border); }
+/* KB-management modal: same 90vw side-by-side layout as /kb/review
+   (image left / form right, form scrolls). Scoped overrides only; the
+   shared .kb-split-* rules live in style.css. */
+#kbm-modal .modal-content.kb-modal-content { max-width: 1700px; width: 90vw; }
+#kbm-modal .kbm-comparison { cursor: zoom-in; }
+#kbm-modal .kb-split-img { flex-direction: column; gap: 0.3rem; }
 #kbm-modal .kb-textarea { resize: vertical; min-height: 8rem; font-size: 0.85rem; }
 #kbm-modal .kb-field { grid-template-columns: 92px minmax(0, 1fr); }
 </style>
@@ -155,16 +154,10 @@
         try { return JSON.stringify(v, null, 2); } catch (e) { return String(v); }
     }
 
-    // Open the app-wide lightbox (#lightbox-overlay is wired in app.js) for the
-    // comparison PNG injected into the modal — the auto-binder there only covers
-    // detail-page images, so we open it directly.
-    window.kbmZoom = function (src) {
-        var lb = document.getElementById('lightbox-overlay');
-        var img = document.getElementById('lightbox-img');
-        if (!lb || !img) return;
-        img.src = src; img.style.transform = '';
-        lb.classList.add('active');
-    };
+    // Open the app-wide lightbox for the comparison PNG injected into the modal
+    // (its auto-binder only covers detail-page images). Delegate to the shared
+    // opener so zoom/pan reset on each open.
+    window.kbmZoom = function (src) { window.kbOpenLightbox(src); };
 
     window.kbmOpen = function (library, sid) {
         fetch('/kb/manage/entry/' + encodeURIComponent(library) + '/' + encodeURIComponent(sid))
@@ -184,18 +177,27 @@
 
     function formHtml(d) {
         var labels = d.final_labels || [];
+        var sig = d.component_signature || [];
         var sid = d.sample_id || '';
         var imgUrl = '/kb/manage/image/' + encodeURIComponent(d.library) + '/' + encodeURIComponent(sid);
         var checks = TAX.map(function (t) {
             return '<label class="chip-check"><input type="checkbox" name="labels" value="' + esc(t) +
                 '" ' + (labels.indexOf(t) >= 0 ? 'checked' : '') + RO + '> ' + esc(t) + '</label>';
         }).join('');
+        // 成分签名 = 当前拟合成分(自动从 GALFIT 推导;映射不准时可在此修正)
+        var sigChecks = TAX.map(function (t) {
+            return '<label class="chip-check"><input type="checkbox" name="signature" value="' + esc(t) +
+                '" ' + (sig.indexOf(t) >= 0 ? 'checked' : '') + RO + '> ' + esc(t) + '</label>';
+        }).join('');
         return [
-            // comparison image at the top so the galaxy is visible while reading/editing
-            '<div class="kbm-comparison-wrap">' +
+            '<div class="kb-split">',
+            // left: comparison image stays visible while reading/editing
+            '<aside class="kb-split-img">' +
                 '<img class="kbm-comparison" src="' + esc(imgUrl) + '" alt="对比图" loading="lazy" ' +
                 'onclick="kbmZoom(this.src)" onerror="this.parentNode.style.display=\'none\'">' +
-                '<div class="meta">对比图(原图 / 模型 / 残差)· 点击放大</div></div>',
+                '<div class="meta">对比图(原图 / 模型 / 残差)· 点击放大</div></aside>',
+            // right: editable form (scrolls when long)
+            '<div class="kb-split-form">',
             '<div class="kb-ro-meta"><span class="chip chip-lib chip-lib-' + esc(d.library) + '">' + esc(d.library) +
                 '</span> <span class="meta">sample_id: ' + esc(sid) + '</span>' +
                 (d.chi2_nu != null ? ' <span class="meta">χ²/ν ' + Number(d.chi2_nu).toFixed(2) + '</span>' : '') +
@@ -208,6 +210,7 @@
                 '<input type="text" name="obj_id" class="input-textarea" style="padding:4px 8px"' + RO +
                 ' value="' + esc(d.obj_id || '') + '"></div>',
             '<div class="kb-field"><label>最终形态标签(GT,可多选)</label><div class="kb-chips kb-chips-input">' + checks + '</div></div>',
+            '<div class="kb-field"><label>成分签名(当前拟合成分,可多选·映射不准时可改)</label><div class="kb-chips kb-chips-input">' + sigChecks + '</div></div>',
             '<div class="kb-field"><label>图像描述(image_description)</label>' +
                 '<textarea name="image_description" rows="12" class="input-textarea kb-textarea"' + RO + '>' +
                 esc(asText(d.image_description)) + '</textarea></div>',
@@ -219,7 +222,9 @@
                           : '<span class="meta">查看模式(编辑需管理员权限)</span>') +
                 '</div>',
             '<p class="meta kb-foot-note">保存 = 写回 live 检索库(仅元数据;向量与所属库不变)。</p>',
-            '</form>'
+            '</form>',
+            '</div>', // .kb-split-form
+            '</div>'  // .kb-split
         ].join('');
     }
 })();

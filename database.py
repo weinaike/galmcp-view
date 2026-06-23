@@ -117,6 +117,7 @@ def init_db(app):
                 library TEXT,
                 distilled_json TEXT,
                 final_labels_json TEXT DEFAULT '[]',
+                signature_json TEXT DEFAULT '[]',
                 status TEXT NOT NULL DEFAULT 'draft',
                 committed_kb_id TEXT,
                 error TEXT,
@@ -126,6 +127,14 @@ def init_db(app):
             );
         ''')
         db.commit()
+
+        # Migration: add signature_json to kb_staging (component_signature draft
+        # store; mirrors final_labels_json). Idempotent for existing dbs.
+        try:
+            db.execute("ALTER TABLE kb_staging ADD COLUMN signature_json TEXT DEFAULT '[]'")
+            db.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
         # Migration: add source column to samples and rebuild UNIQUE constraint
         cols = [row[1] for row in db.execute('PRAGMA table_info(samples)').fetchall()]

@@ -153,6 +153,13 @@ def _kb_labels(row):
         return []
 
 
+def _kb_signature(row):
+    try:
+        return json.loads(row['signature_json']) if row and row['signature_json'] else []
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+
 def _round_can_distill(source, galaxy_id, timestamp_dir):
     """True iff the round's archive has a ``*component_analysis*.md`` report —
     the ``/distill`` transcription source (and the comparison PNG). Drives STATE
@@ -183,6 +190,7 @@ def _kb_render(source, galaxy_id, timestamp_dir, round_number, row=None, flash=N
         round_number=round_number, row=row,
         distilled=_kb_distilled(row) if row else {},
         labels=_kb_labels(row) if row else [],
+        signature=_kb_signature(row) if row else [],
         taxonomy=TAXONOMY, flash=flash, can_distill=can_distill,
         is_admin=bool(session.get('is_admin')))
 
@@ -1295,11 +1303,12 @@ def kb_commit(sid):
         'obj_id': row['galaxy_id'],
         'library': library,
         'final_labels': final_labels,
+        'component_signature': _kb_signature(row),
         'image_description': distilled.get('image_description', ''),
         'reasoning': distilled.get('reasoning', ''),
         'archive_path': f"{container_path}/{row['galaxy_id']}/archives/{row['timestamp_dir']}",
     }
-    res = kb_client.ingest(container_path, row['galaxy_id'], row['timestamp_dir'], payload)
+    res, err = kb_client.ingest(container_path, row['galaxy_id'], row['timestamp_dir'], payload)
     if res and res.get('sample_id'):
         db.execute(
             'UPDATE kb_staging SET status=\'committed\', library=?, committed_kb_id=?, '
@@ -1309,7 +1318,7 @@ def kb_commit(sid):
     else:
         db.execute(
             'UPDATE kb_staging SET error=?, updated_at=datetime(\'now\') WHERE id=?',
-            ('ingest failed (KB service error or duplicate sample_id)', sid))
+            (err or 'ingest failed (KB service error or duplicate sample_id)', sid))
         db.commit()
     return redirect(url_for('kb_review'))
 
@@ -1422,19 +1431,22 @@ def kb_ajax_preingest():
         'reasoning': request.form.get('reasoning', ''),
     }
     labels = request.form.getlist('labels')
+    signature = request.form.getlist('signature')
     db = get_db()
     db.execute(
         'INSERT INTO kb_staging '
         '(sample_id, source, galaxy_id, round_number, timestamp_dir, library, '
-        'distilled_json, final_labels_json, status) '
-        'VALUES (?,?,?,?,?,?,?,?, \'draft\') '
+        'distilled_json, final_labels_json, signature_json, status) '
+        'VALUES (?,?,?,?,?,?,?,?,?, \'draft\') '
         'ON CONFLICT(source, galaxy_id, timestamp_dir) DO UPDATE SET '
         'library=excluded.library, round_number=COALESCE(excluded.round_number, kb_staging.round_number), '
         'distilled_json=excluded.distilled_json, final_labels_json=excluded.final_labels_json, '
+        'signature_json=excluded.signature_json, '
         'status=\'draft\', error=NULL, updated_at=datetime(\'now\')',
         (f"{galaxy_id}_{ts}", source, galaxy_id, round_number, ts, library,
          json.dumps(distilled, ensure_ascii=False),
-         json.dumps(labels, ensure_ascii=False)))
+         json.dumps(labels, ensure_ascii=False),
+         json.dumps(signature, ensure_ascii=False)))
     db.commit()
     row = db.execute(
         'SELECT * FROM kb_staging WHERE source=? AND galaxy_id=? AND timestamp_dir=?',
@@ -1457,12 +1469,14 @@ def kb_ajax_save():
         'reasoning': request.form.get('reasoning', ''),
     }
     labels = request.form.getlist('labels')
+    signature = request.form.getlist('signature')
     library = request.form.get('library', row['library'] or 'problem')
     db.execute(
         "UPDATE kb_staging SET library=?, distilled_json=?, final_labels_json=?, "
-        "error=NULL, updated_at=datetime('now') WHERE id=?",
+        "signature_json=?, error=NULL, updated_at=datetime('now') WHERE id=?",
         (library, json.dumps(distilled, ensure_ascii=False),
-         json.dumps(labels, ensure_ascii=False), sid))
+         json.dumps(labels, ensure_ascii=False),
+         json.dumps(signature, ensure_ascii=False), sid))
     db.commit()
     row = db.execute('SELECT * FROM kb_staging WHERE id=?', (sid,)).fetchone()
     return _kb_render(row['source'], row['galaxy_id'], row['timestamp_dir'],
@@ -1488,12 +1502,14 @@ def kb_ajax_commit():
         'reasoning': request.form.get('reasoning', ''),
     }
     labels = request.form.getlist('labels')
+    signature = request.form.getlist('signature')
     library = request.form.get('library', row['library'] or 'problem')
     db.execute(
         "UPDATE kb_staging SET library=?, distilled_json=?, final_labels_json=?, "
-        "updated_at=datetime('now') WHERE id=?",
+        "signature_json=?, updated_at=datetime('now') WHERE id=?",
         (library, json.dumps(distilled, ensure_ascii=False),
-         json.dumps(labels, ensure_ascii=False), sid))
+         json.dumps(labels, ensure_ascii=False),
+         json.dumps(signature, ensure_ascii=False), sid))
     db.commit()
     container_path = _get_source_path(row['source'])
     payload = {
@@ -1501,11 +1517,12 @@ def kb_ajax_commit():
         'obj_id': row['galaxy_id'],
         'library': library,
         'final_labels': labels,
+        'component_signature': signature,
         'image_description': distilled['image_description'],
         'reasoning': distilled['reasoning'],
         'archive_path': f"{container_path}/{row['galaxy_id']}/archives/{row['timestamp_dir']}",
     }
-    res = kb_client.ingest(container_path, row['galaxy_id'], row['timestamp_dir'], payload)
+    res, err = kb_client.ingest(container_path, row['galaxy_id'], row['timestamp_dir'], payload)
     flash = None
     if res and res.get('sample_id'):
         db.execute(
@@ -1517,7 +1534,7 @@ def kb_ajax_commit():
     else:
         db.execute(
             "UPDATE kb_staging SET error=?, updated_at=datetime('now') WHERE id=?",
-            ('入库失败（KB 服务错误或 sample_id 重复）', sid))
+            (err or '入库失败（KB 服务错误或 sample_id 重复）', sid))
         db.commit()
     row = db.execute('SELECT * FROM kb_staging WHERE id=?', (sid,)).fetchone()
     return _kb_render(row['source'], row['galaxy_id'], row['timestamp_dir'],
@@ -1610,6 +1627,7 @@ def kb_manage_update(library, sample_id):
     import kb_client
     patch = {
         'final_labels': request.form.getlist('labels'),
+        'component_signature': request.form.getlist('signature'),
         'image_description': request.form.get('image_description', ''),
         'reasoning': request.form.get('reasoning', ''),
     }

@@ -21,8 +21,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # --- knobs (override via env) ---
-VISUALRAG_REPO="${VISUALRAG_REPO:-${SCRIPT_DIR}/../visiualRAG}"
-KB_PREFIX="${VISUALRAG_KB_PREFIX:-.kb_build_0601/index/jwst_0601}"
+VISUALRAG_REPO="${VISUALRAG_REPO:-${SCRIPT_DIR}/../visualRAG}"
+KB_PREFIX="${VISUALRAG_KB_PREFIX:-kb/index/galaxy_dual_vitl14}"
 KB_PORT="${VISUALRAG_PORT:-8765}"
 KB_DEVICE="${VISUALRAG_DEVICE:-cuda}"
 KB_LOG="${SCRIPT_DIR}/visualrag_server.log"
