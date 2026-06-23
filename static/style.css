@@ -920,7 +920,7 @@ body.detail-page .container { max-width: none; }
 /* markdown teaching fields (image_description / reasoning): full-width, mono,
    vertically resizable (content can be a long transcribed report). */
 .kb-md-fieldset > textarea, .kb-md-fieldset > .kb-readonly-text { width: 100%; box-sizing: border-box; }
-.kb-md-textarea { resize: vertical; min-height: 9rem; overflow: auto;
+.kb-md-textarea { resize: vertical; min-height: 9rem; max-height: 50vh; overflow: auto;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .kb-md-readonly { max-height: 55vh; overflow: auto;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
