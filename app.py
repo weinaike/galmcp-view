@@ -86,7 +86,7 @@ app.config.from_object(Config)
 
 # Morphology-component vocabulary (mirrors visualRAG retrieval/component_schema.py;
 # the expert picks GT labels at ingest-review time).
-TAXONOMY = ['disk', 'edge-on disk', 'bulge', 'bar', 'outer disk', 'elliptical', 'fourier', 'psf']
+TAXONOMY = ['disk', 'edge-on disk', 'bulge', 'bar', 'outer disk', 'elliptical', 'fourier', 'psf', 'single sersic', 'companion']
 
 
 def _pretty(obj) -> str:
