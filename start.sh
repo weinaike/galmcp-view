@@ -12,9 +12,16 @@ DB_DIR="${VIEW_DIR}/data"
 GALFIT_PARENT1="/home/wnk/code/s4g-p4-galfit"
 GALFIT_PARENT2="/media/data/galfits"
 
-# visualRAG KB service linkage (set by start_all.sh, or manually). Empty URL =>
-# linkage disabled inside the container (badge red, ingest buttons no-op).
-VISUALRAG_SERVICE_URL="${VISUALRAG_SERVICE_URL:-}"
+# visualRAG KB service linkage. Default to the host KB service over the docker
+# gateway (the container already has --add-host=host.docker.internal:host-gateway)
+# so a bare `start.sh` links the KB too — start_all.sh exports this same URL and
+# thus overrides the default. Set VISUALRAG_SERVICE_URL= (empty) to disable
+# linkage (badge red, ingest buttons no-op).
+VISUALRAG_PORT="${VISUALRAG_PORT:-8765}"
+# `-` (not `:-`): only substitute when UNSET, so a bare `start.sh` (unset) gets
+# the host KB URL, while `VISUALRAG_SERVICE_URL= bash start.sh` (set-but-empty)
+# stays empty → linkage off.
+VISUALRAG_SERVICE_URL="${VISUALRAG_SERVICE_URL-http://host.docker.internal:${VISUALRAG_PORT}}"
 VISUALRAG_ENABLED="${VISUALRAG_ENABLED:-1}"
 
 # Aux mask/sigma/PSF files are symlinks into a shared examples tree (absolute
