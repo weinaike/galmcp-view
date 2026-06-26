@@ -1015,6 +1015,15 @@ body.detail-page .container { max-width: none; }
 /* review modal: 90% viewport, side-by-side (image left / form right) */
 .modal-content.kb-modal-content { max-width: 1700px; width: 90vw; }
 
+/* KB 相似检索 modal: per-case tabs above the left-image / right-form body */
+.kbq-tabs { display: flex; flex-wrap: wrap; gap: 0.25rem; border-bottom: 1px solid var(--border); margin: 0 0 0.75rem; }
+.kbq-tab { background: transparent; border: none; border-bottom: 2px solid transparent; border-radius: 4px 4px 0 0;
+    padding: 0.4rem 0.75rem; cursor: pointer; color: var(--text-muted); font-size: 0.85rem; }
+.kbq-tab:hover { color: var(--text); background: rgba(130, 140, 150, 0.12); }
+.kbq-tab.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; background: rgba(130, 140, 150, 0.12); }
+#kb-query-modal .kb-split { min-height: 52vh; }
+#kb-query-modal .kb-readonly-text { white-space: pre-wrap; max-height: 40vh; overflow: auto; line-height: 1.5; }
+
 /* Distill/commit loading state (shown immediately on click while the VLM /
    DINOv2 call runs, so the click clearly "took"). */
 .kb-loading { display: flex; gap: 0.6rem; align-items: center; color: var(--text-muted); }

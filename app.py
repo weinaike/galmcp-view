@@ -519,9 +519,13 @@ def sample_detail(source, galaxy_id):
         ORDER BY s.galaxy_id LIMIT 1
     ''', (source, galaxy_id, user_id)).fetchone()
 
+    import kb_client
+    kb_enabled = kb_client.enabled()
+
     return render_template('sample_detail.html',
                            source=source,
                            current_source=source,
+                           kb_enabled=kb_enabled,
                            galaxy_id=galaxy_id,
                            sample=sample,
                            rounds=rounds_data,
@@ -1617,6 +1621,50 @@ def kb_manage_entry(library, sample_id):
     if entry is None:
         return jsonify({'error': 'not found'}), 404
     return jsonify(entry)
+
+
+@app.route('/kb/query/<source>/<galaxy_id>/<timestamp_dir>')
+@login_required
+def kb_query(source, galaxy_id, timestamp_dir):
+    """Retrieve the most-similar KB teaching cases for one round (AJAX).
+
+    Packages the round's archive (the SAME zip /distill + /ingest use), POSTs it
+    to the KB service /query, and returns a compact JSON for the round-title
+    「相似检索」modal: ``{status, query, cases[...], warnings}``. Image and full
+    details are NOT embedded here — the browser pulls them per-case via the
+    /kb/manage/{image,entry} proxies, so the host KB service is never reached
+    directly from inside the container.
+    """
+    import kb_client
+    container_path = _get_source_path(source)
+    resp, err = kb_client.query(container_path, galaxy_id, timestamp_dir,
+                                top_k=1, strategy="both")
+    if err or resp is None:
+        return jsonify({'status': 'error', 'error': err or 'KB 服务不可用',
+                        'query': {}, 'cases': [], 'warnings': []})
+
+    def _trim(c, role):
+        c = c or {}
+        return {'role': role,
+                'library': c.get('library') or '',
+                'sample_id': c.get('sample_id') or '',
+                'obj_id': c.get('obj_id') or '',
+                'score': c.get('score')}
+
+    # Collect non-empty cases in role order: baseline, positive, then hard_negs
+    # (top_k=1 usually yields just baseline + positive; the UI caps at 3 anyway).
+    cases = []
+    if resp.get('baseline'):
+        cases.append(_trim(resp['baseline'], 'baseline'))
+    if resp.get('positive'):
+        cases.append(_trim(resp['positive'], 'positive'))
+    for c in (resp.get('hard_negatives') or []):
+        cases.append(_trim(c, 'hard_negative'))
+    cases = cases[:3]
+    return jsonify({'status': resp.get('status', 'ok'),
+                    'query': resp.get('query', {}),
+                    'cases': cases,
+                    'warnings': resp.get('warnings', [])})
 
 
 @app.route('/kb/manage/update/<library>/<sample_id>', methods=['POST'])

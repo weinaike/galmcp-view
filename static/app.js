@@ -483,3 +483,135 @@ window.kbBatchPreingest = function (src) {
         lbImg.style.cursor = 'default';
     });
 })();
+
+// === KB 相似检索 (round-title 检索 button → modal with up to 3 case tabs) ===
+// /kb/query returns {status, query, cases:[{role,library,sample_id,obj_id,score}]}.
+// Each tab lazily fetches the full record via /kb/manage/entry and renders the
+// same left-image / right-form layout as /kb/manage's edit modal (read-only).
+(function () {
+    var ROLE_LABEL = { baseline: '参考样本', positive: '相似正例', hard_negative: '难负例' };
+    var cache = {};          // "lib/id" -> entry detail JSON (lazy, per session)
+    var modal, tabsEl, bodyEl;
+
+    function ready() {
+        modal = document.getElementById('kb-query-modal');
+        tabsEl = document.getElementById('kbq-tabs');
+        bodyEl = document.getElementById('kbq-body');
+        return modal && tabsEl && bodyEl;
+    }
+    function open() { if (ready()) modal.classList.add('active'); }
+    function close() { if (modal) modal.classList.remove('active'); }
+
+    function esc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    function asText(v) {
+        if (v == null) return '';
+        if (typeof v === 'string') return v;
+        try { return JSON.stringify(v, null, 2); } catch (e) { return String(v); }
+    }
+    function fmtScore(s) {
+        if (s == null || s === '') return '';
+        var n = Number(s); return isFinite(n) ? 'score ' + n.toFixed(3) : '';
+    }
+    function chip(t, cls) { return '<span class="chip ' + (cls || '') + '">' + esc(t) + '</span>'; }
+    function chips(arr, cls) {
+        return (arr || []).map(function (t) { return chip(t, cls); }).join('') || '<span class="meta">—</span>';
+    }
+
+    // Render one case's content: left image / right read-only form.
+    function renderEntry(c) {
+        var lib = c.library, sid = c.sample_id;
+        var imgUrl = '/kb/manage/image/' + encodeURIComponent(lib) + '/' + encodeURIComponent(sid);
+        var meta = [
+            lib ? chip(lib, 'chip-lib chip-lib-' + lib) : '',
+            '<span class="meta">sample_id: ' + esc(sid || '—') + '</span>',
+            c.obj_id ? '<span class="meta">obj_id ' + esc(c.obj_id) + '</span>' : '',
+            fmtScore(c.score) ? '<span class="meta">' + fmtScore(c.score) + '</span>' : ''
+        ].filter(Boolean).join(' ');
+        bodyEl.innerHTML =
+            '<div class="kb-split">' +
+              '<aside class="kb-split-img">' +
+                '<img class="kbm-comparison" src="' + esc(imgUrl) + '" alt="对比图" loading="lazy" ' +
+                'onclick="kbOpenLightbox(this.src)" onerror="this.parentNode.style.display=\'none\'">' +
+                '<div class="meta">对比图(原图 / 模型 / 残差)· 点击放大</div>' +
+              '</aside>' +
+              '<div class="kb-split-form"><div class="kb-ro-meta">' + meta + '</div>' +
+                '<p style="color:var(--text-muted)">加载条目详情…</p></div>' +
+            '</div>';
+        var form = bodyEl.querySelector('.kb-split-form');
+        function fill(d) {
+            form.innerHTML =
+                '<div class="kb-ro-meta">' + meta + '</div>' +
+                '<div class="kb-field"><label>最终形态标签(GT)</label><div class="kb-chips">' + chips(d.final_labels) + '</div></div>' +
+                '<div class="kb-field"><label>成分签名</label><div class="kb-chips">' + chips(d.component_signature, 'chip-sig') + '</div></div>' +
+                '<div class="kb-field"><label>图像描述</label><div class="kb-readonly-text kb-md-readonly">' + esc(asText(d.image_description)) + '</div></div>' +
+                '<div class="kb-field"><label>诊断推理</label><div class="kb-readonly-text kb-md-readonly">' + esc(asText(d.reasoning)) + '</div></div>';
+        }
+        var key = lib + '/' + sid;
+        if (cache[key]) { fill(cache[key]); return; }
+        fetch('/kb/manage/entry/' + encodeURIComponent(lib) + '/' + encodeURIComponent(sid))
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (d) {
+                if (!d || d.error) { form.innerHTML = '<p style="color:var(--red)">加载详情失败（条目不存在或 KB 服务离线）。</p>'; return; }
+                cache[key] = d; fill(d);
+            })
+            .catch(function () { form.innerHTML = '<p style="color:var(--red)">加载详情失败。</p>'; });
+    }
+
+    function renderTabs(cases) {
+        tabsEl.innerHTML = '';
+        cases.forEach(function (c, i) {
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'kbq-tab' + (i === 0 ? ' active' : '');
+            b.innerHTML = esc(ROLE_LABEL[c.role] || c.role) +
+                ' <span class="meta">' + esc(c.sample_id || '') + '</span>' +
+                (fmtScore(c.score) ? ' <span class="meta">' + fmtScore(c.score) + '</span>' : '');
+            b.addEventListener('click', function () {
+                tabsEl.querySelectorAll('.kbq-tab').forEach(function (t) { t.classList.remove('active'); });
+                b.classList.add('active');
+                renderEntry(c);
+            });
+            tabsEl.appendChild(b);
+        });
+    }
+
+    window.kbQuery = function (btn, source, galaxy, ts, round) {
+        if (!ready()) return;
+        open();
+        tabsEl.innerHTML = '';
+        bodyEl.innerHTML = '<div class="kb-panel"><div class="kb-panel-body kb-loading"><span class="kb-spinner"></span>' +
+            '<span>检索中…正在提取特征并在知识库检索，约数秒。</span></div></div>';
+        fetch('/kb/query/' + encodeURIComponent(source) + '/' + encodeURIComponent(galaxy) + '/' + encodeURIComponent(ts))
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (!d || d.status === 'error') {
+                    bodyEl.innerHTML = '<div class="kb-flash kb-flash-err">&#9888; ' + esc((d && d.error) || '检索失败') + '</div>';
+                    return;
+                }
+                if (!d.cases || !d.cases.length) {
+                    bodyEl.innerHTML = '<div class="kb-empty-inline"><p>知识库中没有找到相似样本。' +
+                        (d.warnings && d.warnings.length ? '<br>' + esc(d.warnings.join('；')) : '') + '</p></div>';
+                    return;
+                }
+                renderTabs(d.cases);
+                renderEntry(d.cases[0]);
+            })
+            .catch(function () {
+                bodyEl.innerHTML = '<div class="kb-flash kb-flash-err">请求失败，请重试。</div>';
+            });
+    };
+
+    window.kbQueryClose = function (e) {
+        // close only when clicking the overlay backdrop or the × button
+        if (e && e.target && e.target.id !== 'kb-query-modal' &&
+            !e.target.classList.contains('modal-close')) return;
+        close();
+    };
+
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && modal && modal.classList.contains('active')) close();
+    });
+})();

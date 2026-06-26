@@ -201,6 +201,47 @@ def ingest(container_path: str, galaxy_id: str, timestamp_dir: str,
     return None, body.get("error") or "KB 服务返回未知错误"
 
 
+def query(container_path: str, galaxy_id: str, timestamp_dir: str,
+          top_k: int = 1, strategy: str = "both") -> tuple[dict | None, str | None]:
+    """/query one round against the live KB -> (response_json | None, error_msg | None).
+
+    Packages the SAME self-contained archive zip /distill + /ingest use, then
+    POSTs it to the service's retrieval endpoint. ``top_k`` is per-library on the
+    server: baseline = perfect-library top-1, positive = problem-library top-1,
+    hard_negatives = problem-library remainder — so top_k=1 typically returns
+    baseline + positive (2 cases); the UI renders whatever non-empty cases come
+    back (1–3). Returns the parsed QueryResponse ({status, query, baseline,
+    positive, hard_negatives, perfect, warnings}) on success, (None, msg) on
+    failure.
+    """
+    if not enabled():
+        return None, "KB 服务未配置(VISUALRAG_SERVICE_URL 为空)"
+    archive, obj = archive_paths(container_path, galaxy_id, timestamp_dir)
+    try:
+        z = package_material(archive, obj)
+        r = requests.post(
+            f"{_service_url()}/query",
+            files={"archive": ("archive.zip", z, "application/zip")},
+            data={"top_k": str(top_k), "strategy": strategy},
+            timeout=DEFAULT_TIMEOUT,
+        )
+    except Exception as e:  # noqa: BLE001
+        log.warning("visualRAG /query request failed (%s/%s): %s", galaxy_id, timestamp_dir, e)
+        return None, f"请求 KB 服务失败: {e}"
+    if r.status_code != 200:
+        try:
+            detail = (r.json() or {}).get("error") or r.text.strip()[:300]
+        except ValueError:
+            detail = r.text.strip()[:300]
+        log.warning("visualRAG /query %s/%s -> HTTP %s: %s",
+                    galaxy_id, timestamp_dir, r.status_code, detail)
+        return None, f"KB 服务返回 {r.status_code}: {detail}"
+    body = r.json()
+    if body.get("status") in ("ok", "empty"):
+        return body, None
+    return None, (body.get("warnings") or [body.get("error") or "KB 服务返回未知错误"])[0]
+
+
 # ── live-KB management (read / update-metadata / delete) ───────────────────
 #
 # These browse + maintain ALREADY-ingested entries (vs /distill + /ingest above,

@@ -97,6 +97,11 @@
                     {%- endif -%}
                 </button>
                 {% endif %}
+                {% if r.has_png and kb_enabled %}
+                <button type="button" class="btn btn-sm btn-report kb-toggle"
+                        onclick="kbQuery(this, '{{ source }}', '{{ galaxy_id }}', '{{ r.timestamp_dir }}', {{ r.round_number }})"
+                        title="将该轮拟合提交知识库检索相似教学样本">&#128269; 相似检索</button>
+                {% endif %}
                 </div>
             </div>
 
@@ -246,6 +251,20 @@
                 <button type="button" class="modal-close" onclick="closeWorkingNoteModal()">&times;</button>
             </div>
             <div class="modal-body"><div class="report-content" id="working-note-body"></div></div>
+        </div>
+    </div>
+
+    {# --- KB Query (相似检索) Modal: tabs of similar cases, each left-image / right-form --- #}
+    <div class="modal-overlay" id="kb-query-modal" onclick="kbQueryClose(event)">
+        <div class="modal-content kb-modal-content" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h3>相似检索结果</h3>
+                <button type="button" class="modal-close" onclick="kbQueryClose()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="kbq-tabs" id="kbq-tabs"></div>
+                <div class="kbq-body" id="kbq-body"></div>
+            </div>
         </div>
     </div>
 </div>
