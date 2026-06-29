@@ -179,6 +179,18 @@ nav {
     flex-wrap: wrap;
     gap: 12px;
 }
+/* Detail page: pin the title bar (返回列表 / galaxy id / 轮拟合 / Agent 报告 /
+   Working Note) directly under the sticky nav so it stays visible while scrolling.
+   Full-bleed via negative margins so its background matches the nav width. */
+body.detail-page .header-bar {
+    position: sticky;
+    top: var(--nav-h, 0);
+    z-index: 90;
+    margin: 0 -24px 24px;       /* span the container padding → full width */
+    padding: 12px 24px;          /* restore inner inset + vertical breathing room */
+    background: var(--bg-dark);
+    border-bottom: 1px solid var(--border);
+}
 .header-bar h2 {
     font-size: 1.4rem;
 }

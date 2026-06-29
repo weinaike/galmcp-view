@@ -104,6 +104,17 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
+// Keep the detail-page sticky title bar flush under the sticky nav.
+// The nav height is content-driven, so measure it and expose as --nav-h.
+function syncNavOffset() {
+    var nav = document.querySelector('nav');
+    if (!nav) return;
+    document.documentElement.style.setProperty('--nav-h', nav.getBoundingClientRect().height + 'px');
+}
+document.addEventListener('DOMContentLoaded', syncNavOffset);
+window.addEventListener('resize', syncNavOffset);
+window.addEventListener('load', syncNavOffset);
+
 // Filter sample list
 function filterSamples(type) {
     var rows = document.querySelectorAll('.sample-row');
