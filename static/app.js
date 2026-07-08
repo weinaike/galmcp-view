@@ -634,9 +634,10 @@ window.kbBatchPreingest = function (src) {
 
     window.openCompareModal = function (ev) {
         var m = modal(); if (!m) return;
-        // reset: uncheck everything except the fixed current-source box
+        // reset: restore default checked state — only the preselected (current
+        // source, if any) box is checked; everything else unchecked.
         m.querySelectorAll('input[name="compare-source"]').forEach(function (cb) {
-            if (!cb.dataset.fixed) cb.checked = false;
+            cb.checked = !!cb.dataset.preselected;
         });
         var w = warnEl();
         w.style.display = 'none';
@@ -650,24 +651,21 @@ window.kbBatchPreingest = function (src) {
         m.classList.remove('active');
     };
 
-    window.submitCompare = function (currentSource) {
+    window.submitCompare = function () {
         var m = modal(); if (!m) return;
         var w = warnEl();
-        var checked = Array.prototype.map.call(
+        // labels follow the on-screen (source-definition) order of the checkboxes
+        var labels = Array.prototype.map.call(
             m.querySelectorAll('input[name="compare-source"]:checked'),
             function (cb) { return cb.value; }
         );
-        // current source is always first (it is checked+disabled)
-        var labels = [currentSource].concat(
-            checked.filter(function (l) { return l !== currentSource; })
-        );
         if (labels.length < 2) {
-            w.innerHTML = '请至少再选择 1 个数据源 (合计 ≥ 2 列)。';
+            w.innerHTML = '请至少选择 2 个数据源进行对比。';
             w.style.display = 'block';
             return;
         }
         if (labels.length > 3) {
-            w.innerHTML = '最多选择 3 个数据源 (当前 1 + 额外 ≤ 2)。';
+            w.innerHTML = '最多选择 3 个数据源。';
             w.style.display = 'block';
             return;
         }
