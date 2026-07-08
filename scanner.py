@@ -6,6 +6,42 @@ import json
 import glob
 
 
+def find_analysis_report_path(galaxy_id, base_path):
+    """Locate the analysis_report*.md file inside a galaxy directory.
+
+    Returns the absolute path, or None if the galaxy dir is missing or has
+    no matching report. Kept here (rather than in app.py) so the scanner can
+    populate samples.best_turn without importing Flask; app.py re-exports
+    these via underscore aliases."""
+    galaxy_dir = os.path.join(base_path, galaxy_id)
+    try:
+        candidates = [
+            f for f in sorted(os.listdir(galaxy_dir))
+            if 'analysis_report' in f and f.endswith('.md')
+        ]
+    except OSError:
+        return None
+    if not candidates:
+        return None
+    return os.path.join(galaxy_dir, candidates[0])
+
+
+def parse_best_turn(galaxy_id, base_path):
+    """Extract the best_turn timestamp_dir from the JSON block embedded in
+    analysis_report.md. Returns the timestamp_dir string, or None when the
+    report is absent or carries no best_turn key."""
+    report_path = find_analysis_report_path(galaxy_id, base_path)
+    if not report_path:
+        return None
+    try:
+        with open(report_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+    except OSError:
+        return None
+    m = re.search(r'"best_turn"\s*:\s*"([^"]+)"', content)
+    return m.group(1) if m else None
+
+
 def parse_summary(md_text):
     """Parse a summary.md file and extract components and chi-squared.
 
@@ -260,6 +296,9 @@ def _scan_single_galaxy(source_label, galaxy_dir, base_path, db):
 
     galaxy_id = os.path.basename(galaxy_dir)
 
+    # Parse AI-recommended best_turn once per galaxy (None if no report / no key).
+    best_turn = parse_best_turn(galaxy_id, base_path)
+
     # Get sorted timestamp directories
     timestamp_dirs = sorted([
         d for d in os.listdir(data_dir)
@@ -271,14 +310,14 @@ def _scan_single_galaxy(source_label, galaxy_dir, base_path, db):
 
     num_rounds = len(timestamp_dirs)
 
-    # Upsert sample with fitting_type
+    # Upsert sample with fitting_type and best_turn
     db.execute(
-        'INSERT INTO samples (source, galaxy_id, num_rounds, fitting_type, last_scanned) '
-        'VALUES (?, ?, ?, ?, datetime(\'now\')) '
+        'INSERT INTO samples (source, galaxy_id, num_rounds, fitting_type, best_turn, last_scanned) '
+        'VALUES (?, ?, ?, ?, ?, datetime(\'now\')) '
         'ON CONFLICT(source, galaxy_id) DO UPDATE SET '
         'num_rounds=excluded.num_rounds, fitting_type=excluded.fitting_type, '
-        'last_scanned=excluded.last_scanned',
-        (source_label, galaxy_id, num_rounds, fitting_type)
+        'best_turn=excluded.best_turn, last_scanned=excluded.last_scanned',
+        (source_label, galaxy_id, num_rounds, fitting_type, best_turn)
     )
     sample = db.execute(
         'SELECT id FROM samples WHERE source = ? AND galaxy_id = ?',

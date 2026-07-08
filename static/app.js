@@ -443,7 +443,7 @@ window.kbBatchPreingest = function (src) {
 
     // Bind to all detail-page images
     document.addEventListener('DOMContentLoaded', function() {
-        document.querySelectorAll('.round-image img, .eval-image, .s4g-section .round-image img').forEach(function(img) {
+        document.querySelectorAll('.round-image img, .eval-image, .s4g-section .round-image img, .compare-image img').forEach(function(img) {
             img.style.cursor = 'zoom-in';
             img.addEventListener('click', function(e) {
                 e.stopPropagation();
@@ -626,3 +626,100 @@ window.kbBatchPreingest = function (src) {
         if (e.key === 'Escape' && modal && modal.classList.contains('active')) close();
     });
 })();
+
+// --- 拟合对比 modal (source picker + IoU gate) ---
+(function () {
+    function modal() { return document.getElementById('compare-modal'); }
+    function warnEl() { return document.getElementById('compare-warning'); }
+
+    window.openCompareModal = function (ev) {
+        var m = modal(); if (!m) return;
+        // reset: uncheck everything except the fixed current-source box
+        m.querySelectorAll('input[name="compare-source"]').forEach(function (cb) {
+            if (!cb.dataset.fixed) cb.checked = false;
+        });
+        var w = warnEl();
+        w.style.display = 'none';
+        w.textContent = '';
+        m.classList.add('active');
+    };
+
+    window.closeCompareModal = function (e) {
+        var m = modal(); if (!m) return;
+        if (e && e.target !== m && !e.target.classList.contains('modal-close')) return;
+        m.classList.remove('active');
+    };
+
+    window.submitCompare = function (currentSource) {
+        var m = modal(); if (!m) return;
+        var w = warnEl();
+        var checked = Array.prototype.map.call(
+            m.querySelectorAll('input[name="compare-source"]:checked'),
+            function (cb) { return cb.value; }
+        );
+        // current source is always first (it is checked+disabled)
+        var labels = [currentSource].concat(
+            checked.filter(function (l) { return l !== currentSource; })
+        );
+        if (labels.length < 2) {
+            w.innerHTML = '请至少再选择 1 个数据源 (合计 ≥ 2 列)。';
+            w.style.display = 'block';
+            return;
+        }
+        if (labels.length > 3) {
+            w.innerHTML = '最多选择 3 个数据源 (当前 1 + 额外 ≤ 2)。';
+            w.style.display = 'block';
+            return;
+        }
+        w.style.display = 'none';
+        w.textContent = '正在计算数据源重叠度…';
+        w.style.display = 'block';
+        fetch('/compare/iou?sources=' + encodeURIComponent(labels.join(',')),
+              { cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (d.ok) {
+                    window.location.href = '/compare/' +
+                        labels.map(encodeURIComponent).join('/');
+                } else {
+                    w.innerHTML = '&#9888; 数据源 galaxy 集合 IoU = ' +
+                        (d.iou || 0).toFixed(3) +
+                        ' (交集 ' + (d.inter_count || 0) + ' / 并集 ' +
+                        (d.union_count || 0) + ')，低于 0.5 阈值。' +
+                        '请重新选择重叠更高的数据源。' +
+                        (d.error ? '<br>' + d.error : '');
+                    w.style.display = 'block';
+                }
+            })
+            .catch(function () {
+                w.textContent = '请求失败，请重试。';
+                w.style.display = 'block';
+            });
+    };
+
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') {
+            var m = modal();
+            if (m && m.classList.contains('active')) closeCompareModal();
+        }
+    });
+})();
+
+// --- 拟合对比 view-mode toggle (堆叠/并排), persisted in localStorage ---
+window.setCompareMode = function (mode) {
+    var c = document.getElementById('compare-container');
+    if (!c) return;
+    c.setAttribute('data-mode', mode);
+    document.querySelectorAll('.cv-btn').forEach(function (b) {
+        b.classList.toggle('active', b.dataset.mode === mode);
+    });
+    try { localStorage.setItem('compareViewMode', mode); } catch (e) {}
+};
+// restore saved preference on load
+document.addEventListener('DOMContentLoaded', function () {
+    var saved = 'stacked';
+    try { saved = localStorage.getItem('compareViewMode') || 'stacked'; } catch (e) {}
+    if (document.getElementById('compare-container')) {
+        window.setCompareMode(saved);
+    }
+});

@@ -18,6 +18,9 @@
             {# <a href="/analysis/">残差图评价</a> #}
             <a href="/voting/">拟合投票</a>
             <a href="/statistics/{{ current_source or '' }}">投票统计</a>
+            {% if current_source %}
+            <a href="#" onclick="openCompareModal(event); return false;">拟合对比</a>
+            {% endif %}
             <a href="/kb/review">KB 入库</a>
             <a href="/kb/manage">KB 管理</a>
             <a href="/admin/sources">数据源管理</a>
@@ -42,6 +45,34 @@
     <div id="lightbox-overlay">
         <img id="lightbox-img" src="" alt="">
     </div>
+    {# --- 拟合对比 modal (source picker + IoU gate) --- #}
+    {% if current_source and sources %}
+    <div class="modal-overlay" id="compare-modal" onclick="closeCompareModal(event)">
+        <div class="modal-content" onclick="event.stopPropagation()" style="max-width:520px">
+            <div class="modal-header">
+                <h3>拟合对比 — 选择数据源</h3>
+                <button type="button" class="modal-close" onclick="closeCompareModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="meta">当前数据源 <b>{{ current_source }}</b> 固定为第 1 列。再选 1–2 个数据源对比 (合计 2–3 列)。</p>
+                <div id="compare-source-list" style="margin:12px 0;display:flex;flex-direction:column">
+                    {% for label in sources %}
+                    <label class="radio-label" style="margin-bottom:6px">
+                        <input type="checkbox" name="compare-source" value="{{ label }}"
+                               {% if label == current_source %}checked disabled data-fixed="1"{% endif %}>
+                        {{ label }}{% if label == current_source %} <span class="meta">(当前·固定)</span>{% endif %}
+                    </label>
+                    {% endfor %}
+                </div>
+                <div id="compare-warning" style="display:none;color:var(--red, #e06c75);margin:8px 0"></div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-primary"
+                            onclick="submitCompare('{{ current_source or '' }}')">开始对比</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
     <script src="{{ url_for('static', filename='app.js') }}"></script>
     <script src="{{ url_for('static', filename='tour.js') }}"></script>
 </body>

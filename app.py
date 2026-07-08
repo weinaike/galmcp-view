@@ -11,7 +11,7 @@ from flask import (Flask, render_template, request, redirect, url_for,
                    session, send_file, abort, Response, jsonify)
 from config import Config
 from database import get_db, close_db, init_db
-from scanner import scan_galaxies
+from scanner import scan_galaxies, find_analysis_report_path, parse_best_turn
 
 
 # --- S4G table7 loader ---
@@ -213,18 +213,9 @@ def _load_final_chi2():
 
 
 def _find_analysis_report_path(galaxy_id, base_path):
-
-    galaxy_dir = os.path.join(base_path, galaxy_id)
-    try:
-        candidates = [
-            f for f in sorted(os.listdir(galaxy_dir))
-            if 'analysis_report' in f and f.endswith('.md')
-        ]
-    except OSError:
-        return None
-    if not candidates:
-        return None
-    return os.path.join(galaxy_dir, candidates[0])
+    # Forwarded to scanner.find_analysis_report_path (the canonical home,
+    # so the scanner can populate samples.best_turn without importing Flask).
+    return find_analysis_report_path(galaxy_id, base_path)
 
 
 def _find_working_note_path(galaxy_id, base_path):
@@ -234,18 +225,32 @@ def _find_working_note_path(galaxy_id, base_path):
 
 
 def _parse_best_turn(galaxy_id, base_path):
-    """Extract best_turn timestamp_dir from analysis_report.md JSON block."""
-    import re
-    report_path = _find_analysis_report_path(galaxy_id, base_path)
-    if not report_path:
-        return None
-    try:
-        with open(report_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-    except OSError:
-        return None
-    m = re.search(r'"best_turn"\s*:\s*"([^"]+)"', content)
-    return m.group(1) if m else None
+    """Forwarded to scanner.parse_best_turn (canonical home)."""
+    return parse_best_turn(galaxy_id, base_path)
+
+
+def get_best_turn(sample_row, db):
+    """Resolve the AI-recommended best_turn for a sample.
+
+    Strategy:
+      1. If samples.best_turn is already populated in the DB -> return it.
+      2. Otherwise fall back to parsing analysis_report.md from disk.
+      3. On a successful fallback, lazily write the value back to the DB
+         (self-heal) so subsequent reads skip the file parse.
+
+    `sample_row` must carry 'id', 'source', 'galaxy_id', 'best_turn'.
+    Returns the timestamp_dir string, or None.
+    """
+    if sample_row['best_turn']:
+        return sample_row['best_turn']
+    base_path = _get_source_path(sample_row['source'])
+    bt = _parse_best_turn(sample_row['galaxy_id'], base_path)
+    if bt:
+        # self-heal: persist so the next request skips the file read
+        db.execute('UPDATE samples SET best_turn=? WHERE id=?',
+                   (bt, sample_row['id']))
+        db.commit()
+    return bt
 
 
 # Relative χ²/ν drop a diagnosis round must produce at the NEXT round to be
@@ -535,7 +540,7 @@ def sample_detail(source, galaxy_id):
                            has_working_note=has_working_note,
                            has_comparison_png=comparison_png is not None,
                            s4g_components=_get_s4g_components(galaxy_id),
-                           best_turn=_parse_best_turn(galaxy_id, base_path),
+                           best_turn=get_best_turn(sample, db),
                            final_chi2=_load_final_chi2().get(galaxy_id),
                            prev_sample=prev_sample['galaxy_id'] if prev_sample else None,
                            next_sample=next_sample['galaxy_id'] if next_sample else None)
@@ -814,6 +819,136 @@ def statistics(source=None):
                            users=users, samples=samples,
                            vote_data=vote_data, matrix=matrix,
                            current_source=source)
+
+
+# --- Fitting Comparison (拟合对比) ---
+
+def _build_compare_cell(source, galaxy_id, fitting_type, best_turn, base_path, db):
+    """Build the render context for one (galaxy, source) comparison cell.
+
+    Returns None when there is no best_turn, or the best_turn's round has no
+    comparison PNG (so the template renders an empty cell). Mirrors
+    sample_detail's fit.log / component_attributes.txt path logic and reuses
+    the existing /image/<source>/<galaxy>/<timestamp_dir> route for the PNG.
+    """
+    if not best_turn:
+        return None
+    r = db.execute(
+        'SELECT r.png_path, r.round_number, r.chi_squared_nu, r.bic '
+        'FROM rounds r '
+        'JOIN samples s ON r.sample_id = s.id '
+        'WHERE s.source=? AND s.galaxy_id=? AND r.timestamp_dir=?',
+        (source, galaxy_id, best_turn)).fetchone()
+    if not r or not r['png_path']:
+        return None
+
+    round_data_dir = 'output' if fitting_type == 'multi-band' else 'archives'
+    log_name = ('component_attributes.txt' if fitting_type == 'multi-band'
+                else 'fit.log')
+    log_path = os.path.join(base_path, galaxy_id, round_data_dir,
+                            best_turn, log_name)
+    fit_log = ''
+    if os.path.isfile(log_path):
+        try:
+            with open(log_path, 'r', encoding='utf-8', errors='replace') as f:
+                lines = f.readlines()
+            if fitting_type == 'single-band':
+                # skip lines 2-6 (index 1-5): blank + file-path info
+                fit_log = ''.join(lines[:1] + lines[6:])
+            else:
+                fit_log = ''.join(lines)
+        except OSError:
+            pass
+
+    return {
+        'source': source,
+        'galaxy_id': galaxy_id,
+        'timestamp_dir': best_turn,
+        'round_number': r['round_number'],
+        'chi_squared_nu': r['chi_squared_nu'],
+        'bic': r['bic'],
+        'fitting_type': fitting_type,
+        'fit_log': fit_log,
+    }
+
+
+@app.route('/compare/iou')
+@login_required
+def compare_iou():
+    """AJAX: galaxy-set IoU across 2-3 sources.
+
+    GET /compare/iou?sources=a,b,c -> {iou, inter_count, union_count, ok}
+    Used by the nav modal to gate navigation: ok is true iff iou >= 0.5.
+    """
+    raw = (request.args.get('sources') or '').strip()
+    labels = [s for s in raw.split(',') if s]
+    if len(labels) < 2:
+        return jsonify({'iou': 0.0, 'inter_count': 0, 'union_count': 0,
+                        'ok': False, 'error': '需要至少 2 个数据源'})
+    db = get_db()
+    sets = {}
+    for label in labels:
+        rows = db.execute(
+            'SELECT galaxy_id FROM samples WHERE source=? ORDER BY galaxy_id',
+            (label,)).fetchall()
+        sets[label] = {row['galaxy_id'] for row in rows}
+    inter = set.intersection(*sets.values()) if sets else set()
+    union = set.union(*sets.values()) if sets else set()
+    iou = (len(inter) / len(union)) if union else 0.0
+    return jsonify({'iou': round(iou, 4),
+                    'inter_count': len(inter),
+                    'union_count': len(union),
+                    'ok': iou >= 0.5})
+
+
+@app.route('/compare/<s1>/<s2>')
+@app.route('/compare/<s1>/<s2>/<s3>')
+@login_required
+def compare_sources(s1, s2, s3=None):
+    """Side-by-side best-fit comparison across 2-3 sources.
+
+    Columns = the selected source labels (order preserved). Rows = the UNION
+    of galaxy_ids across the sources (sorted). Each cell renders that source's
+    AI-recommended (best_turn) round: the comparison PNG via
+    /image/<source>/<galaxy>/<timestamp_dir>, plus the fit.log (single-band)
+    or component_attributes.txt (multi-band). Missing (galaxy, source) pairs
+    render an empty cell. Comparison results are computed per request and
+    are NOT persisted.
+    """
+    sources = _get_sources_from_db()
+    labels = [s1, s2] + ([s3] if s3 else [])
+    for label in labels:
+        if label not in sources:
+            abort(404)
+
+    db = get_db()
+    columns = []          # list of {label, fitting_type, cells:{gid:cell}}
+    galaxy_sets = []
+    for label in labels:
+        base_path = sources[label]
+        rows = db.execute(
+            'SELECT id, galaxy_id, source, fitting_type, best_turn '
+            'FROM samples WHERE source=? ORDER BY galaxy_id',
+            (label,)).fetchall()
+        cells = {}
+        fitting_type = None
+        for r in rows:
+            ft = r['fitting_type'] or 'single-band'
+            if fitting_type is None:
+                fitting_type = ft
+            best = get_best_turn(r, db)
+            cells[r['galaxy_id']] = _build_compare_cell(
+                label, r['galaxy_id'], ft, best, base_path, db)
+        columns.append({'label': label, 'fitting_type': fitting_type,
+                        'cells': cells})
+        galaxy_sets.append(set(cells.keys()))
+
+    galaxy_ids = sorted(set.union(*galaxy_sets)) if galaxy_sets else []
+
+    return render_template('compare.html',
+                           labels=labels, columns=columns,
+                           galaxy_ids=galaxy_ids,
+                           current_source=labels[0])
 
 
 # --- Analysis Evaluation: Data Initialization ---
@@ -1899,4 +2034,4 @@ if __name__ == '__main__':
         for source in db.execute('SELECT label, container_path FROM sources').fetchall():
             scan_galaxies(source['label'], source['container_path'], db)
         init_analysis_data(app)
-    app.run(debug=True, host='0.0.0.0', port=35091)
+    app.run(debug=True, host='0.0.0.0', port=35092)

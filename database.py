@@ -244,6 +244,15 @@ def init_db(app):
         except sqlite3.OperationalError:
             pass
 
+        # Migration: add best_turn column to samples (AI-recommended timestamp_dir,
+        # parsed from analysis_report.md by the scanner; self-heals lazily in app.py
+        # for rows scanned before this migration landed).
+        try:
+            db.execute("ALTER TABLE samples ADD COLUMN best_turn TEXT")
+            db.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
         # Migration: add multi-band columns to rounds
         for col, coldef in [
             ('round_status', "TEXT DEFAULT 'success'"),
