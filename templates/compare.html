@@ -38,11 +38,14 @@
                 <div class="compare-cell">
                     <div class="cell-source-label">{{ col.label }} {{ fitting_badge(col.fitting_type) }}</div>
                     {% if cell %}
-                    <div class="compare-image">
-                        <img src="/image/{{ cell.source }}/{{ cell.galaxy_id }}/{{ cell.timestamp_dir }}"
-                             alt="{{ gid }} {{ col.label }}"
-                             loading="lazy">
-                    </div>
+                    <details open class="compare-image-details">
+                        <summary>对比图</summary>
+                        <div class="compare-image">
+                            <img src="/image/{{ cell.source }}/{{ cell.galaxy_id }}/{{ cell.timestamp_dir }}"
+                                 alt="{{ gid }} {{ col.label }}"
+                                 loading="lazy">
+                        </div>
+                    </details>
                     {% if cell.round_number %}
                     <div class="meta" style="margin-top:4px">
                         轮次 {{ cell.round_number }} · {{ cell.timestamp_dir }}

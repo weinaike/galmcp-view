@@ -1219,3 +1219,21 @@ body.detail-page .container { max-width: none; }
     text-align: center;
     padding: 24px 0;
 }
+
+/* compare image — open by default, collapsible (mirrors fitlog-details marker) */
+.compare-image-details > summary {
+    cursor: pointer;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    padding: 4px 0;
+    margin-bottom: 8px;
+    list-style: none;
+}
+.compare-image-details > summary::before {
+    content: "▸";
+    display: inline-block;
+    margin-right: 6px;
+    transition: transform 0.15s;
+}
+.compare-image-details[open] > summary { color: var(--text); }
+.compare-image-details[open] > summary::before { transform: rotate(90deg); }
