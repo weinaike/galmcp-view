@@ -253,6 +253,16 @@ def init_db(app):
         except sqlite3.OperationalError:
             pass  # Column already exists
 
+        # Migration: add best_components column to samples (the component type-name
+        # list that accompanies best_turn in the same analysis_report.md JSON block,
+        # e.g. ["Disk","Bar","Companion"]; stored as a JSON string). Self-heals
+        # lazily in app.py alongside best_turn.
+        try:
+            db.execute("ALTER TABLE samples ADD COLUMN best_components TEXT")
+            db.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
         # Migration: add multi-band columns to rounds
         for col, coldef in [
             ('round_status', "TEXT DEFAULT 'success'"),

@@ -225,8 +225,22 @@ def _find_working_note_path(galaxy_id, base_path):
 
 
 def _parse_best_turn(galaxy_id, base_path):
-    """Forwarded to scanner.parse_best_turn (canonical home)."""
+    """Forwarded to scanner.parse_best_turn (canonical home).
+
+    Returns a (best_turn, components_list) tuple — see scanner.parse_best_turn.
+    """
     return parse_best_turn(galaxy_id, base_path)
+
+
+def _loads_components(raw):
+    """Decode the samples.best_components JSON string into a list (or [])."""
+    if not raw:
+        return []
+    try:
+        v = json.loads(raw)
+        return v if isinstance(v, list) else []
+    except (ValueError, TypeError):
+        return []
 
 
 def get_best_turn(sample_row, db):
@@ -235,8 +249,9 @@ def get_best_turn(sample_row, db):
     Strategy:
       1. If samples.best_turn is already populated in the DB -> return it.
       2. Otherwise fall back to parsing analysis_report.md from disk.
-      3. On a successful fallback, lazily write the value back to the DB
-         (self-heal) so subsequent reads skip the file parse.
+      3. On a successful fallback, lazily write the value (and the accompanying
+         components list, read from the same JSON block) back to the DB
+         (self-heal) so subsequent reads skip the file parse for both.
 
     `sample_row` must carry 'id', 'source', 'galaxy_id', 'best_turn'.
     Returns the timestamp_dir string, or None.
@@ -244,13 +259,41 @@ def get_best_turn(sample_row, db):
     if sample_row['best_turn']:
         return sample_row['best_turn']
     base_path = _get_source_path(sample_row['source'])
-    bt = _parse_best_turn(sample_row['galaxy_id'], base_path)
+    bt, comps = _parse_best_turn(sample_row['galaxy_id'], base_path)
     if bt:
-        # self-heal: persist so the next request skips the file read
-        db.execute('UPDATE samples SET best_turn=? WHERE id=?',
-                   (bt, sample_row['id']))
+        # self-heal: persist best_turn + best_components (same file read) so the
+        # next request skips the file parse for both.
+        db.execute('UPDATE samples SET best_turn=?, best_components=? WHERE id=?',
+                   (bt, json.dumps(comps or []), sample_row['id']))
         db.commit()
     return bt
+
+
+def get_best_turn_meta(sample_row, db):
+    """Resolve (best_turn, components) for a sample.
+
+    Same DB-cache + file-fallback + lazy write-back strategy as get_best_turn,
+    but returns both fields. Used by the compare page, which shows the
+    component type-name list alongside the best round.
+
+    `sample_row` should carry 'best_components' for the fast path; if the
+    column is absent from the row it falls through to a file parse. Returns
+    (best_turn_or_None, components_list).
+    """
+    bt = sample_row['best_turn']
+    bc_raw = sample_row['best_components'] if 'best_components' in sample_row.keys() else None
+    if bt and bc_raw:
+        return bt, _loads_components(bc_raw)
+    base_path = _get_source_path(sample_row['source'])
+    parsed_bt, parsed_comps = _parse_best_turn(sample_row['galaxy_id'], base_path)
+    if not parsed_bt:
+        # no file data — return whatever was already cached
+        return bt, (_loads_components(bc_raw) if bc_raw else [])
+    comps = parsed_comps or []
+    db.execute('UPDATE samples SET best_turn=?, best_components=? WHERE id=?',
+               (parsed_bt, json.dumps(comps), sample_row['id']))
+    db.commit()
+    return parsed_bt, comps
 
 
 # Relative χ²/ν drop a diagnosis round must produce at the NEXT round to be
@@ -823,13 +866,19 @@ def statistics(source=None):
 
 # --- Fitting Comparison (拟合对比) ---
 
-def _build_compare_cell(source, galaxy_id, fitting_type, best_turn, base_path, db):
+def _build_compare_cell(source, galaxy_id, fitting_type, best_turn, components,
+                        base_path, db):
     """Build the render context for one (galaxy, source) comparison cell.
 
     Returns None when there is no best_turn, or the best_turn's round has no
     comparison PNG (so the template renders an empty cell). Mirrors
     sample_detail's fit.log / component_attributes.txt path logic and reuses
     the existing /image/<source>/<galaxy>/<timestamp_dir> route for the PNG.
+
+    `components` is the type-name list that accompanies best_turn in the
+    analysis_report.md JSON block (e.g. ['Disk','Bar','Companion']); it is
+    rendered as-is (no Re/n) — detailed params live in fit.log /
+    component_attributes.txt.
     """
     if not best_turn:
         return None
@@ -869,6 +918,7 @@ def _build_compare_cell(source, galaxy_id, fitting_type, best_turn, base_path, d
         'bic': r['bic'],
         'fitting_type': fitting_type,
         'fit_log': fit_log,
+        'components': ', '.join(components) if components else '',
     }
 
 
@@ -927,7 +977,7 @@ def compare_sources(s1, s2, s3=None):
     for label in labels:
         base_path = sources[label]
         rows = db.execute(
-            'SELECT id, galaxy_id, source, fitting_type, best_turn '
+            'SELECT id, galaxy_id, source, fitting_type, best_turn, best_components '
             'FROM samples WHERE source=? ORDER BY galaxy_id',
             (label,)).fetchall()
         cells = {}
@@ -936,9 +986,9 @@ def compare_sources(s1, s2, s3=None):
             ft = r['fitting_type'] or 'single-band'
             if fitting_type is None:
                 fitting_type = ft
-            best = get_best_turn(r, db)
+            best, comps = get_best_turn_meta(r, db)
             cells[r['galaxy_id']] = _build_compare_cell(
-                label, r['galaxy_id'], ft, best, base_path, db)
+                label, r['galaxy_id'], ft, best, comps, base_path, db)
         columns.append({'label': label, 'fitting_type': fitting_type,
                         'cells': cells})
         galaxy_sets.append(set(cells.keys()))

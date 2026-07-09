@@ -27,19 +27,32 @@ def find_analysis_report_path(galaxy_id, base_path):
 
 
 def parse_best_turn(galaxy_id, base_path):
-    """Extract the best_turn timestamp_dir from the JSON block embedded in
-    analysis_report.md. Returns the timestamp_dir string, or None when the
-    report is absent or carries no best_turn key."""
+    """Extract (best_turn, components) from the JSON block embedded in
+    analysis_report.md.
+
+    Returns a (timestamp_dir, components_list) tuple. timestamp_dir is None
+    when the report is absent or carries no best_turn key; components_list is
+    the accompanying type-name list (e.g. ['Disk','Bar','Companion']) or [].
+    Both come from the same JSON object, so they are read in one file pass."""
     report_path = find_analysis_report_path(galaxy_id, base_path)
     if not report_path:
-        return None
+        return None, []
     try:
         with open(report_path, 'r', encoding='utf-8') as f:
             content = f.read()
     except OSError:
-        return None
+        return None, []
     m = re.search(r'"best_turn"\s*:\s*"([^"]+)"', content)
-    return m.group(1) if m else None
+    best_turn = m.group(1) if m else None
+    components = []
+    cm = re.search(r'"components"\s*:\s*\[([^\]]*)\]', content)
+    if cm:
+        components = [
+            c.strip().strip('"\'')
+            for c in cm.group(1).split(',')
+            if c.strip()
+        ]
+    return best_turn, components
 
 
 def parse_summary(md_text):
@@ -297,7 +310,7 @@ def _scan_single_galaxy(source_label, galaxy_dir, base_path, db):
     galaxy_id = os.path.basename(galaxy_dir)
 
     # Parse AI-recommended best_turn once per galaxy (None if no report / no key).
-    best_turn = parse_best_turn(galaxy_id, base_path)
+    best_turn, best_components = parse_best_turn(galaxy_id, base_path)
 
     # Get sorted timestamp directories
     timestamp_dirs = sorted([
@@ -310,14 +323,16 @@ def _scan_single_galaxy(source_label, galaxy_dir, base_path, db):
 
     num_rounds = len(timestamp_dirs)
 
-    # Upsert sample with fitting_type and best_turn
+    # Upsert sample with fitting_type, best_turn and best_components
     db.execute(
-        'INSERT INTO samples (source, galaxy_id, num_rounds, fitting_type, best_turn, last_scanned) '
-        'VALUES (?, ?, ?, ?, ?, datetime(\'now\')) '
+        'INSERT INTO samples (source, galaxy_id, num_rounds, fitting_type, best_turn, best_components, last_scanned) '
+        'VALUES (?, ?, ?, ?, ?, ?, datetime(\'now\')) '
         'ON CONFLICT(source, galaxy_id) DO UPDATE SET '
         'num_rounds=excluded.num_rounds, fitting_type=excluded.fitting_type, '
-        'best_turn=excluded.best_turn, last_scanned=excluded.last_scanned',
-        (source_label, galaxy_id, num_rounds, fitting_type, best_turn)
+        'best_turn=excluded.best_turn, best_components=excluded.best_components, '
+        'last_scanned=excluded.last_scanned',
+        (source_label, galaxy_id, num_rounds, fitting_type, best_turn,
+         json.dumps(best_components or []))
     )
     sample = db.execute(
         'SELECT id FROM samples WHERE source = ? AND galaxy_id = ?',
