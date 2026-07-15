@@ -1038,6 +1038,14 @@ def _collect_stats_pairs(columns, galaxy_ids):
     descending, so positional pairing (i-th with i-th) is meaningful.
     Returns a list of dicts: {galaxy, name, mag:(a,b), re:(a,b), n:(a,b)}.
     """
+    def purify_components(components):
+        if 'Fourier' in components:
+            components.remove('Fourier')
+        if 'Companion' in components:
+            components.remove('Companion')
+        if components == set(['Disk']):
+            components.add('SingleSersic') # disk only -> single sersic
+            components.remove('Disk')
     pairs = []
     cells_a = columns[0]['cells']
     cells_b = columns[1]['cells']
@@ -1054,14 +1062,11 @@ def _collect_stats_pairs(columns, galaxy_ids):
         # not on raw parsed names which differ between file formats
         sa = set(c.strip() for c in ca.get('components', '').split(',')
                  if c.strip())
-        disk_only = set(['Disk'])
-        if sa == disk_only:
-            sa = set(['SingleSersic'])
+        purify_components(sa)
 
         sb = set(c.strip() for c in cb.get('components', '').split(',')
                  if c.strip())
-        if sb == disk_only:
-            sb = set(['SingleSersic'])
+        purify_components(sb)
 
         if not sa or sa != sb:
             continue
