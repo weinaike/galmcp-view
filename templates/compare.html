@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}拟合对比 - 星系拟合评价系统{% endblock %}
+{% block bodyclass %}compare-page{% endblock %}
 
 {% macro fitting_badge(ft) %}
 {% if ft == 'multi-band' %}<span class="badge badge-multiband">多波段</span>{% else %}<span class="badge badge-single">单波段</span>{% endif %}
@@ -13,20 +14,15 @@
             <h2>拟合对比</h2>
             <span class="meta">数据源: {{ labels | join(' vs ') }} · 共 {{ galaxy_ids|length }} 个星系 (并集)</span>
         </div>
-        <div class="compare-view-toggle">
-            <button type="button" class="cv-btn active" data-mode="stacked" onclick="setCompareMode('stacked')">堆叠</button>
-            <button type="button" class="cv-btn" data-mode="side" onclick="setCompareMode('side')">并排</button>
-        </div>
     </div>
 
     {% if not galaxy_ids %}
     <p class="meta">所选数据源下没有任何星系。</p>
     {% else %}
-    <div class="compare-container" id="compare-container" data-mode="stacked">
-        {# header row: aligned source labels, visible only in side-by-side mode #}
+    <div class="compare-container" id="compare-container">
         <div class="compare-header">
             {% for col in columns %}
-            <div class="compare-colhead">{{ col.label }} {{ fitting_badge(col.fitting_type) }}</div>
+            <div class="compare-colhead col-{{ col.fitting_type }}">{{ col.label }} {{ fitting_badge(col.fitting_type) }}</div>
             {% endfor %}
         </div>
         {% for gid in galaxy_ids %}
@@ -35,20 +31,15 @@
             <div class="compare-cells">
                 {% for col in columns %}
                 {% set cell = col.cells.get(gid) %}
-                <div class="compare-cell">
-                    <div class="cell-source-label">{{ col.label }} {{ fitting_badge(col.fitting_type) }}</div>
+                <div class="compare-cell col-{{ col.fitting_type }}">
                     {% if cell %}
-                    <details open class="compare-image-details">
-                        <summary>对比图</summary>
-                        <div class="compare-image">
-                            <img src="/image/{{ cell.source }}/{{ cell.galaxy_id }}/{{ cell.timestamp_dir }}"
-                                 alt="{{ gid }} {{ col.label }}"
-                                 loading="lazy">
-                        </div>
-                    </details>
+                    <div class="compare-image">
+                        <img src="/image/{{ cell.source }}/{{ cell.galaxy_id }}/{{ cell.timestamp_dir }}"
+                             alt="{{ gid }} {{ col.label }}"
+                             loading="lazy">
+                    </div>
                     <div class="meta" style="margin-top:4px">
-                        轮次 {{ cell.round_number }} · {{ cell.timestamp_dir }}
-                        {% if cell.chi_squared_nu is not none %} · χ²/ν={{ '%.3f'|format(cell.chi_squared_nu) }}{% endif %}
+                        {% if cell.chi_squared_nu is not none %}χ²/ν={{ '%.3f'|format(cell.chi_squared_nu) }}{% endif %}
                         {% if cell.bic is not none %} · BIC={{ '%.1f'|format(cell.bic) }}{% endif %}
                         {% if cell.components %} · 成分: {{ cell.components }}{% endif %}
                         · <a href="/sample/{{ cell.source }}/{{ cell.galaxy_id }}">详情页 →</a>

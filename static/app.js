@@ -664,8 +664,8 @@ window.kbBatchPreingest = function (src) {
             w.style.display = 'block';
             return;
         }
-        if (labels.length > 3) {
-            w.innerHTML = '最多选择 3 个数据源。';
+        if (labels.length > 2) {
+            w.innerHTML = '最多选择 2 个数据源。';
             w.style.display = 'block';
             return;
         }
@@ -703,21 +703,3 @@ window.kbBatchPreingest = function (src) {
     });
 })();
 
-// --- 拟合对比 view-mode toggle (堆叠/并排), persisted in localStorage ---
-window.setCompareMode = function (mode) {
-    var c = document.getElementById('compare-container');
-    if (!c) return;
-    c.setAttribute('data-mode', mode);
-    document.querySelectorAll('.cv-btn').forEach(function (b) {
-        b.classList.toggle('active', b.dataset.mode === mode);
-    });
-    try { localStorage.setItem('compareViewMode', mode); } catch (e) {}
-};
-// restore saved preference on load
-document.addEventListener('DOMContentLoaded', function () {
-    var saved = 'stacked';
-    try { saved = localStorage.getItem('compareViewMode') || 'stacked'; } catch (e) {}
-    if (document.getElementById('compare-container')) {
-        window.setCompareMode(saved);
-    }
-});

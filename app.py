@@ -925,7 +925,7 @@ def _build_compare_cell(source, galaxy_id, fitting_type, best_turn, components,
 @app.route('/compare/iou')
 @login_required
 def compare_iou():
-    """AJAX: galaxy-set IoU across 2-3 sources.
+    """AJAX: galaxy-set IoU across 2 sources.
 
     GET /compare/iou?sources=a,b,c -> {iou, inter_count, union_count, ok}
     Used by the nav modal to gate navigation: ok is true iff iou >= 0.5.
@@ -952,10 +952,9 @@ def compare_iou():
 
 
 @app.route('/compare/<s1>/<s2>')
-@app.route('/compare/<s1>/<s2>/<s3>')
 @login_required
-def compare_sources(s1, s2, s3=None):
-    """Side-by-side best-fit comparison across 2-3 sources.
+def compare_sources(s1, s2):
+    """Side-by-side best-fit comparison across 2 sources.
 
     Columns = the selected source labels (order preserved). Rows = the UNION
     of galaxy_ids across the sources (sorted). Each cell renders that source's
@@ -966,7 +965,7 @@ def compare_sources(s1, s2, s3=None):
     are NOT persisted.
     """
     sources = _get_sources_from_db()
-    labels = [s1, s2] + ([s3] if s3 else [])
+    labels = [s1, s2]
     for label in labels:
         if label not in sources:
             abort(404)

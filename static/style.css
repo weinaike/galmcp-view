@@ -1106,28 +1106,13 @@ body.detail-page .container { max-width: none; }
 /* === 拟合对比 compare page === */
 .badge-single { background: rgba(139,148,158,0.15); color: var(--text-muted); }
 
-/* view-mode toggle (堆叠/并排) */
-.compare-view-toggle { display: inline-flex; gap: 4px; }
-.compare-view-toggle .cv-btn {
-    padding: 4px 16px;
-    border: 1px solid var(--border);
-    background: var(--bg-dark);
-    color: var(--text-muted);
-    border-radius: var(--radius);
-    cursor: pointer;
-    font-size: 0.85rem;
-}
-.compare-view-toggle .cv-btn:hover { color: var(--text); }
-.compare-view-toggle .cv-btn.active {
-    background: var(--bg-card-hover);
-    color: var(--text);
-    border-color: var(--accent);
-}
+/* compare page uses a wider container than the default 1200px */
+body.compare-page .container { max-width: 1600px; }
 
 .compare-container { display: flex; flex-direction: column; gap: 16px; }
 
-/* aligned source-label header — only shown in side-by-side mode */
-.compare-header { display: none; }
+/* aligned source-label header */
+.compare-header { display: flex; gap: 12px; padding: 0 12px; }
 
 .compare-galaxy {
     border: 1px solid var(--border);
@@ -1143,36 +1128,28 @@ body.detail-page .container { max-width: none; }
     padding: 8px 12px;
     border-left: 3px solid var(--accent);
 }
-.compare-cells { display: flex; gap: 12px; padding: 12px; }
+/* align-items: flex-end bottom-aligns the two cells so the comparison
+   images share a common baseline even when their heights differ. */
+.compare-cells {
+    display: flex;
+    gap: 12px;
+    padding: 12px;
+    align-items: flex-end;
+    overflow-x: auto;
+}
 .compare-colhead, .compare-cell { flex: 1 1 0; min-width: 0; }
+/* Mixed single/multi-band comparison: single-band column = 3/8, multi-band = 5/8.
+   Same-type comparisons stay 1:1 (3:3 or 5:5). */
+.compare-colhead.col-single-band,
+.compare-cell.col-single-band { flex: 3 1 0; }
+.compare-colhead.col-multi-band,
+.compare-cell.col-multi-band { flex: 5 1 0; }
 .compare-colhead {
     font-weight: 500;
     color: var(--text-muted);
     padding: 6px 8px 8px;
     border-bottom: 2px solid var(--border);
 }
-/* per-cell source label — shown only in stacked mode */
-.cell-source-label {
-    font-weight: 500;
-    color: var(--text-muted);
-    margin-bottom: 8px;
-    padding-bottom: 6px;
-    border-bottom: 1px solid var(--border);
-}
-
-/* ---- side-by-side mode ---- */
-#compare-container[data-mode="side"] .compare-header {
-    display: flex;
-    gap: 12px;
-    padding: 0 12px;
-}
-#compare-container[data-mode="side"] .cell-source-label { display: none; }
-#compare-container[data-mode="side"] .compare-cell { min-width: 300px; }
-#compare-container[data-mode="side"] .compare-cells { overflow-x: auto; }
-
-/* ---- stacked mode (default): cells vertical, each full width ---- */
-#compare-container[data-mode="stacked"] .compare-cells { flex-direction: column; }
-#compare-container[data-mode="stacked"] .compare-cell { width: 100%; }
 
 .compare-image img {
     width: 100%;
@@ -1219,21 +1196,3 @@ body.detail-page .container { max-width: none; }
     text-align: center;
     padding: 24px 0;
 }
-
-/* compare image — open by default, collapsible (mirrors fitlog-details marker) */
-.compare-image-details > summary {
-    cursor: pointer;
-    font-size: 0.9rem;
-    color: var(--text-muted);
-    padding: 4px 0;
-    margin-bottom: 8px;
-    list-style: none;
-}
-.compare-image-details > summary::before {
-    content: "▸";
-    display: inline-block;
-    margin-right: 6px;
-    transition: transform 0.15s;
-}
-.compare-image-details[open] > summary { color: var(--text); }
-.compare-image-details[open] > summary::before { transform: rotate(90deg); }

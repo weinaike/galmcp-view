@@ -52,7 +52,7 @@
                 <button type="button" class="modal-close" onclick="closeCompareModal()">&times;</button>
             </div>
             <div class="modal-body">
-                <p class="meta">选择 2–3 个数据源进行对比{% if current_source %}（当前 <b>{{ current_source }}</b> 已预选，可取消）{% endif %}。</p>
+                <p class="meta">选择 2 个数据源进行对比{% if current_source %}（当前 <b>{{ current_source }}</b> 已预选，可取消）{% endif %}。</p>
                 <div id="compare-source-list" style="margin:12px 0;display:flex;flex-direction:column">
                     {% for label in sources %}
                     <label class="radio-label" style="margin-bottom:6px">
