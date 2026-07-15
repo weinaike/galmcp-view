@@ -44,20 +44,68 @@
                         {% if cell.components %} · 成分: {{ cell.components }}{% endif %}
                         · <a href="/sample/{{ cell.source }}/{{ cell.galaxy_id }}">详情页 →</a>
                     </div>
-                    {% if cell.fit_log %}
-                    <details class="fitlog-details">
-                        <summary>{% if cell.fitting_type == 'multi-band' %}component_attributes.txt{% else %}fit.log{% endif %}</summary>
-                        <pre class="fitlog-content">{{ cell.fit_log }}</pre>
-                    </details>
-                    {% endif %}
                     {% else %}
                     <div class="cell-empty">—</div>
                     {% endif %}
                 </div>
                 {% endfor %}
             </div>
+            {% set ns = namespace(has_params=false) %}
+            {% for col in columns %}
+                {% set cell = col.cells.get(gid) %}
+                {% if cell and cell.params %}{% set ns.has_params = true %}{% endif %}
+            {% endfor %}
+            {% if ns.has_params %}
+            <div class="compare-param-wrap">
+                <table class="compare-param-table">
+                    <thead>
+                        <tr>
+                            <th>type/name</th><th>x</th><th>y</th><th>Mag</th>
+                            <th>Re</th><th>n</th><th>b/a</th><th>PA</th><th>来源</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for col in columns %}
+                        {% set cell = col.cells.get(gid) %}
+                        {% set ci = loop.index0 %}
+                        {% if cell and cell.params %}
+                        {% for p in cell.params %}
+                        <tr class="param-src-{{ ci }}">
+                            <td>{{ p.name }}</td>
+                            <td>{{ p.x }}</td>
+                            <td>{{ p.y }}</td>
+                            <td>{{ p.mag }}</td>
+                            <td>{{ p.re }}</td>
+                            <td>{% if p.n %}{{ p.n }}{% else %}—{% endif %}</td>
+                            <td>{{ p.ba }}</td>
+                            <td>{{ p.pa }}</td>
+                            <td>{{ col.label }}</td>
+                        </tr>
+                        {% endfor %}
+                        {% endif %}
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
         </div>
         {% endfor %}
+        {% if stats_plots %}
+        <div class="compare-stats">
+            <div class="compare-stats-header">
+                <h3>统计</h3>
+                <span class="meta">成分匹配的星系: {{ stats_galaxy_count }}</span>
+            </div>
+            <div class="stats-plots">
+                {% for sp in stats_plots %}
+                <div class="stat-plot">
+                    <h4>{{ sp.label }}</h4>
+                    <img src="{{ sp.plot }}" alt="{{ sp.label }} 对比散点图">
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
     </div>
     {% endif %}
 </div>

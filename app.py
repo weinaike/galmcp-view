@@ -3,6 +3,7 @@
 import os
 import glob
 import json
+import re
 import statistics as stats_mod
 from collections import OrderedDict
 from functools import wraps
@@ -866,6 +867,97 @@ def statistics(source=None):
 
 # --- Fitting Comparison (拟合对比) ---
 
+def _clean_num(s):
+    """Strip {}, [], * wrappers from a value string."""
+    return re.sub(r'[{}\[\]*]', '', s).strip()
+
+
+def _safe_float(s):
+    try:
+        return float(s)
+    except (ValueError, TypeError):
+        return 0.0
+
+
+_FITLOG_COMP_RE = re.compile(
+    r'^\s*(sersic|expdisk)\s*:\s*'
+    r'\(\s*([^,)]+),\s*([^)]+)\)\s*(.*)$'
+)
+
+
+def _parse_fitlog_params(text):
+    """Parse single-band fit.log text into a list of component dicts.
+
+    Only ``sersic`` / ``expdisk`` lines are extracted.  ``expdisk`` has no n
+    (always 1), so its ``n`` is set to ``None``.  Values may be wrapped in
+    ``{}``, ``[]``, or ``*`` — these are stripped.  Result is sorted by Re
+    (descending).
+    """
+    comps = []
+    for line in text.splitlines():
+        m = _FITLOG_COMP_RE.match(line)
+        if not m:
+            continue
+        comp_type = m.group(1)
+        x = _clean_num(m.group(2))
+        y = _clean_num(m.group(3))
+        rest = [_clean_num(v) for v in m.group(4).split()]
+        if comp_type == 'expdisk':
+            if len(rest) < 4:          # mag, re, ba, pa
+                continue
+            mag, re_val, ba, pa = rest[:4]
+            n = '1'                     # expdisk n is always 1
+        else:                          # sersic: mag, re, n, ba, pa
+            if len(rest) < 5:
+                continue
+            mag, re_val, n, ba, pa = rest[:5]
+        comps.append({'name': comp_type, 'x': x, 'y': y, 'mag': mag,
+                      're': re_val, 'n': n, 'ba': ba, 'pa': pa})
+    comps.sort(key=lambda c: _safe_float(c['re']), reverse=True)
+    return comps
+
+
+def _parse_attrs_params(text, preferred_band='nircam_f277w'):
+    """Parse multi-band component_attributes.txt into component dicts.
+
+    Uses *preferred_band* if present, otherwise the first band listed.
+    Result is sorted by Re (descending).
+    """
+    bands = {}
+    current_band = None
+    current_comp = None
+    for line in text.splitlines():
+        bm = re.match(r'^\s*-\s*Band:\s*(.+?)\s*$', line)
+        if bm:
+            current_band = bm.group(1).strip()
+            bands[current_band] = []
+            current_comp = None
+            continue
+        cm = re.match(r'^\s*-\s*Component\s+(.+?):\s*$', line)
+        if cm and current_band is not None:
+            current_comp = {'name': cm.group(1).strip()}
+            bands[current_band].append(current_comp)
+            continue
+        if current_comp is not None:
+            for k, v in re.findall(r'(\w+):\s*(\S+)', line):
+                current_comp[k] = _clean_num(v)
+    if preferred_band in bands:
+        chosen = bands[preferred_band]
+    elif bands:
+        chosen = next(iter(bands.values()))
+    else:
+        chosen = []
+    result = []
+    for comp in chosen:
+        result.append({'name': comp.get('name', ''),
+                       'x': comp.get('x', ''), 'y': comp.get('y', ''),
+                       'mag': comp.get('mag', ''), 're': comp.get('re', ''),
+                       'n': comp.get('n', ''), 'ba': comp.get('ba', ''),
+                       'pa': comp.get('pa', '')})
+    result.sort(key=lambda c: _safe_float(c['re']), reverse=True)
+    return result
+
+
 def _build_compare_cell(source, galaxy_id, fitting_type, best_turn, components,
                         base_path, db):
     """Build the render context for one (galaxy, source) comparison cell.
@@ -875,10 +967,9 @@ def _build_compare_cell(source, galaxy_id, fitting_type, best_turn, components,
     sample_detail's fit.log / component_attributes.txt path logic and reuses
     the existing /image/<source>/<galaxy>/<timestamp_dir> route for the PNG.
 
-    `components` is the type-name list that accompanies best_turn in the
-    analysis_report.md JSON block (e.g. ['Disk','Bar','Companion']); it is
-    rendered as-is (no Re/n) — detailed params live in fit.log /
-    component_attributes.txt.
+    The log file is parsed into ``params`` — a list of component dicts
+    (name, x, y, mag, re, n, ba, pa) sorted by Re descending — which the
+    template renders in a unified cross-source comparison table.
     """
     if not best_turn:
         return None
@@ -896,16 +987,15 @@ def _build_compare_cell(source, galaxy_id, fitting_type, best_turn, components,
                 else 'fit.log')
     log_path = os.path.join(base_path, galaxy_id, round_data_dir,
                             best_turn, log_name)
-    fit_log = ''
+    params = []
     if os.path.isfile(log_path):
         try:
             with open(log_path, 'r', encoding='utf-8', errors='replace') as f:
-                lines = f.readlines()
+                raw_text = f.read()
             if fitting_type == 'single-band':
-                # skip lines 2-6 (index 1-5): blank + file-path info
-                fit_log = ''.join(lines[:1] + lines[6:])
+                params = _parse_fitlog_params(raw_text)
             else:
-                fit_log = ''.join(lines)
+                params = _parse_attrs_params(raw_text)
         except OSError:
             pass
 
@@ -917,9 +1007,129 @@ def _build_compare_cell(source, galaxy_id, fitting_type, best_turn, components,
         'chi_squared_nu': r['chi_squared_nu'],
         'bic': r['bic'],
         'fitting_type': fitting_type,
-        'fit_log': fit_log,
+        'params': params,
         'components': ', '.join(components) if components else '',
     }
+
+
+# attributes to plot in the statistics section
+_STAT_ATTRS = [('mag', 'Mag'), ('re', 'Re'), ('n', 'n')]
+
+
+def _short_galaxy_label(gid):
+    """Shorten a galaxy ID for plot labels.
+
+    Full ID when it is all-digits; otherwise the last 5 characters.
+    """
+    if gid.isdigit():
+        return gid
+    return gid[-5:] if len(gid) > 5 else gid
+
+
+def _collect_stats_pairs(columns, galaxy_ids):
+    """Collect matched component pairs for cross-source statistics.
+
+    A galaxy qualifies when both sources share the same analysis-report
+    component list (e.g. {Disk, Bulge}) **and** the same count of parsed
+    components.  The raw parsed names differ across file formats (fit.log
+    yields GALFIT types like ``expdisk``/``sersic``; component_attributes.txt
+    yields component names like ``disk``/``bulge``), so matching is done on
+    the ``components`` field instead.  Both sides are already sorted by Re
+    descending, so positional pairing (i-th with i-th) is meaningful.
+    Returns a list of dicts: {galaxy, name, mag:(a,b), re:(a,b), n:(a,b)}.
+    """
+    pairs = []
+    cells_a = columns[0]['cells']
+    cells_b = columns[1]['cells']
+    for gid in galaxy_ids:
+        ca = cells_a.get(gid)
+        cb = cells_b.get(gid)
+        if not ca or not cb:
+            continue
+        pa = ca.get('params', [])
+        pb = cb.get('params', [])
+        if not pa or len(pa) != len(pb):
+            continue
+        # match on the analysis-report component set (consistent vocabulary),
+        # not on raw parsed names which differ between file formats
+        sa = set(c.strip() for c in ca.get('components', '').split(',')
+                 if c.strip())
+        disk_only = set(['Disk'])
+        if sa == disk_only:
+            sa = set(['SingleSersic'])
+
+        sb = set(c.strip() for c in cb.get('components', '').split(',')
+                 if c.strip())
+        if sb == disk_only:
+            sb = set(['SingleSersic'])
+
+        if not sa or sa != sb:
+            continue
+        for a, b in zip(pa, pb):
+            row = {'galaxy': gid, 'name': a['name']}
+            for key, _ in _STAT_ATTRS:
+                row[key] = (_safe_float(a.get(key)),
+                            _safe_float(b.get(key)))
+            pairs.append(row)
+    return pairs
+
+
+def _make_comparison_scatter(pairs, attr_key, attr_label, label_a, label_b):
+    """Generate a base64-encoded PNG scatter plot for one attribute.
+
+    x = source-A value, y = source-B value, with a y=x reference line.
+    Each point is labelled with a (shortened) galaxy ID.
+    """
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    import io
+    import base64 as _b64
+
+    xs = [p[attr_key][0] for p in pairs]
+    ys = [p[attr_key][1] for p in pairs]
+
+    fig, ax = plt.subplots(figsize=(5, 5))
+    fig.patch.set_facecolor('#161b22')
+    ax.set_facecolor('#0d1117')
+    ax.tick_params(colors='#8b949e')
+    for spine in ax.spines.values():
+        spine.set_color('#30363d')
+    ax.xaxis.label.set_color('#e6edf3')
+    ax.yaxis.label.set_color('#e6edf3')
+    ax.title.set_color('#e6edf3')
+
+    if xs and ys:
+        lo = min(min(xs), min(ys))
+        hi = max(max(xs), max(ys))
+        if lo == hi:
+            lo, hi = lo - 1, hi + 1
+        margin = (hi - lo) * 0.08
+        lo, hi = lo - margin, hi + margin
+        ax.plot([lo, hi], [lo, hi], '--', color='#8b949e',
+                alpha=0.6, linewidth=1)
+        ax.set_xlim(lo, hi)
+        ax.set_ylim(lo, hi)
+
+    ax.scatter(xs, ys, c='#58a6ff', s=35, zorder=5,
+               edgecolors='#0d1117', linewidths=0.5)
+    for i, p in enumerate(pairs):
+        ax.annotate(_short_galaxy_label(p['galaxy']),
+                    (xs[i], ys[i]),
+                    textcoords='offset points', xytext=(5, 4),
+                    fontsize=6.5, color='#e6edf3', alpha=0.85)
+
+    ax.set_xlabel('%s — %s' % (label_a, attr_label))
+    ax.set_ylabel('%s — %s' % (label_b, attr_label))
+    ax.set_aspect('equal')
+    ax.grid(True, color='#30363d', alpha=0.25, linestyle='--')
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', dpi=130, bbox_inches='tight',
+                facecolor=fig.get_facecolor())
+    plt.close(fig)
+    buf.seek(0)
+    return 'data:image/png;base64,' + _b64.b64encode(buf.getvalue()).decode()
 
 
 @app.route('/compare/iou')
@@ -994,9 +1204,24 @@ def compare_sources(s1, s2):
 
     galaxy_ids = sorted(set.union(*galaxy_sets)) if galaxy_sets else []
 
+    # --- collect matched-pair statistics ---
+    stats_pairs = _collect_stats_pairs(columns, galaxy_ids)
+    stats_plots = []
+    if stats_pairs:
+        for key, lbl in _STAT_ATTRS:
+            try:
+                plot = _make_comparison_scatter(
+                    stats_pairs, key, lbl, labels[0], labels[1])
+                stats_plots.append({'key': key, 'label': lbl, 'plot': plot})
+            except Exception:
+                pass
+    stats_galaxy_count = len(set(p['galaxy'] for p in stats_pairs))
+
     return render_template('compare.html',
                            labels=labels, columns=columns,
                            galaxy_ids=galaxy_ids,
+                           stats_plots=stats_plots,
+                           stats_galaxy_count=stats_galaxy_count,
                            current_source=labels[0])
 
 
