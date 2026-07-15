@@ -1215,13 +1215,13 @@ def compare_sources(s1, s2):
                 stats_plots.append({'key': key, 'label': lbl, 'plot': plot})
             except Exception:
                 pass
-    stats_galaxy_count = len(set(p['galaxy'] for p in stats_pairs))
+    stats_galaxies = sorted(set(p['galaxy'] for p in stats_pairs))
 
     return render_template('compare.html',
                            labels=labels, columns=columns,
                            galaxy_ids=galaxy_ids,
                            stats_plots=stats_plots,
-                           stats_galaxy_count=stats_galaxy_count,
+                           stats_galaxies=stats_galaxies,
                            current_source=labels[0])
 
 
