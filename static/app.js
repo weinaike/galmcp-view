@@ -703,3 +703,57 @@ window.kbBatchPreingest = function (src) {
     });
 })();
 
+// --- 拟合评分 modal (1 label set + 1 source picker) ---
+(function () {
+    function modal() { return document.getElementById('score-modal'); }
+    function warnEl() { return document.getElementById('score-warning'); }
+
+    window.openScoreModal = function (ev) {
+        var m = modal(); if (!m) return;
+        // reset radio selection: keep only the current-source default checked
+        m.querySelectorAll('input[name="score-source"]').forEach(function (rb) {
+            rb.checked = !!rb.dataset.default;
+        });
+        m.querySelectorAll('input[name="score-labelset"]').forEach(function (rb) {
+            rb.checked = false;
+        });
+        var w = warnEl();
+        w.style.display = 'none';
+        w.textContent = '';
+        m.classList.add('active');
+    };
+
+    window.closeScoreModal = function (e) {
+        var m = modal(); if (!m) return;
+        if (e && e.target !== m && !e.target.classList.contains('modal-close')) return;
+        m.classList.remove('active');
+    };
+
+    window.submitScore = function () {
+        var m = modal(); if (!m) return;
+        var w = warnEl();
+        var ls = m.querySelector('input[name="score-labelset"]:checked');
+        var src = m.querySelector('input[name="score-source"]:checked');
+        if (!ls) {
+            w.textContent = '请选择一个标签集。';
+            w.style.display = 'block';
+            return;
+        }
+        if (!src) {
+            w.textContent = '请选择一个数据源。';
+            w.style.display = 'block';
+            return;
+        }
+        w.style.display = 'none';
+        window.location.href = '/score/' + encodeURIComponent(ls.value) +
+            '/' + encodeURIComponent(src.value);
+    };
+
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') {
+            var m = modal();
+            if (m && m.classList.contains('active')) closeScoreModal();
+        }
+    });
+})();
+

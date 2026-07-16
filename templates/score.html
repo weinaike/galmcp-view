@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}拟合评分 - 星系拟合评价系统{% endblock %}
+{% block bodyclass %}score-page{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="header-bar">
+        <div>
+            <a href="/admin/sources" class="back-link">&larr; 返回</a>
+            <h2>拟合评分</h2>
+            <span class="meta">
+                标签集: <b>{{ labelset.name }}</b> · 数据源: <b>{{ source }}</b>
+            </span>
+        </div>
+    </div>
+
+    <div class="compare-stats" style="margin-bottom: 1.5rem;">
+        <div class="compare-stats-header">
+            <h3>准确率</h3>
+            <span class="meta">共评价 {{ total_source }} 个星系（数据源全部）</span>
+        </div>
+        <div style="display:flex; gap:2rem; align-items:center; flex-wrap:wrap; padding:0.5rem 0;">
+            <div style="font-size:2.2rem; font-weight:700; color: var(--accent, #58a6ff);">
+                {{ '%.1f' % (accuracy * 100) }}%
+            </div>
+            <div class="meta">
+                正确 <b style="color:#3fb950;">{{ correct|length }}</b> ·
+                错误 <b style="color: var(--red, #e06c75);">{{ wrong|length }}</b> ·
+                已评价 {{ total_evaluated }}
+                {% if missing_label %}· 缺标签 {{ missing_label|length }}{% endif %}
+            </div>
+        </div>
+        {% if total_evaluated == 0 %}
+        <p class="meta" style="color: var(--red, #e06c75);">
+            没有可评价的星系：数据源中的星系均未在标签集中找到对应标签。
+        </p>
+        {% endif %}
+    </div>
+
+    <h3 style="margin-bottom: 0.8rem;">
+        拟合错误 <span class="meta">({{ wrong|length }})</span>
+    </h3>
+    {% if wrong %}
+    <table class="sample-table" style="margin-bottom: 2rem;">
+        <thead>
+            <tr>
+                <th>星系 ID</th>
+                <th>拟合 components</th>
+                <th>期望 components</th>
+                <th>详情</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for e in wrong %}
+            <tr>
+                <td class="galaxy-id">{{ e.galaxy_id }}</td>
+                <td>
+                    {% for c in e.fitted %}
+                    <span class="stats-galaxy-tag" style="color: var(--red, #e06c75);">{{ c }}</span>
+                    {% endfor %}
+                    {% if not e.fitted %}<span class="meta">—</span>{% endif %}
+                </td>
+                <td>
+                    {% for c in e.expected %}
+                    <span class="stats-galaxy-tag" style="color:#3fb950;">{{ c }}</span>
+                    {% endfor %}
+                    {% if not e.expected %}<span class="meta">—</span>{% endif %}
+                </td>
+                <td><a href="/sample/{{ source }}/{{ e.galaxy_id }}" class="back-link">查看</a></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="meta" style="margin-bottom: 2rem;">无错误星系。</p>
+    {% endif %}
+
+    <h3 style="margin-bottom: 0.8rem;">
+        拟合正确 <span class="meta">({{ correct|length }})</span>
+    </h3>
+    {% if correct %}
+    <div class="stats-galaxy-list" style="margin-bottom: 2rem;">
+        {% for e in correct %}
+        <span class="stats-galaxy-tag" title="{{ e.fitted | join(', ') }}">
+            <a href="/sample/{{ source }}/{{ e.galaxy_id }}" style="color:inherit;text-decoration:none;">{{ e.galaxy_id }}</a>
+        </span>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="meta" style="margin-bottom: 2rem;">无正确星系。</p>
+    {% endif %}
+
+    {% if missing_label %}
+    <details style="margin-bottom: 2rem;">
+        <summary class="meta" style="cursor:pointer;">
+            缺标签星系 ({{ missing_label|length }}) — 数据源有拟合但标签集未覆盖，不计入准确率
+        </summary>
+        <div class="stats-galaxy-list" style="margin-top: 0.8rem;">
+            {% for e in missing_label %}
+            <span class="stats-galaxy-tag" title="拟合: {{ e.fitted | join(', ') }}">{{ e.galaxy_id }}</span>
+            {% endfor %}
+        </div>
+    </details>
+    {% endif %}
+</div>
+{% endblock %}

@@ -198,7 +198,11 @@ def _kb_render(source, galaxy_id, timestamp_dir, round_number, row=None, flash=N
 
 @app.context_processor
 def inject_sources():
-    return {'sources': _get_sources_from_db()}
+    db = get_db()
+    label_sets = db.execute(
+        'SELECT id, name, description FROM label_sets ORDER BY id'
+    ).fetchall()
+    return {'sources': _get_sources_from_db(), 'label_sets': label_sets}
 
 
 def _load_final_chi2():
@@ -231,6 +235,24 @@ def _parse_best_turn(galaxy_id, base_path):
     Returns a (best_turn, components_list) tuple — see scanner.parse_best_turn.
     """
     return parse_best_turn(galaxy_id, base_path)
+
+
+def _purify_component_set(components):
+    """Normalize a component collection for equality comparison.
+
+    Mirrors the rules used by the compare-page statistics: drop Fourier and
+    Companion (decorative/auxiliary), and treat a pure-disk model as a single
+    Sersic. Accepts any iterable of names; returns a new ``set``.
+    """
+    s = set(c for c in components if c)
+    s.discard('Fourier')
+    s.discard('Companion')
+    if 'AGN' in s:
+        s.add('Nucleus')
+        s.discard('AGN')
+    if s == {'Disk'} or s == {'Bulge'} or s == {'Bar'}:
+        s = {'SingleSersic'}
+    return s
 
 
 def _loads_components(raw):
@@ -1038,14 +1060,6 @@ def _collect_stats_pairs(columns, galaxy_ids):
     descending, so positional pairing (i-th with i-th) is meaningful.
     Returns a list of dicts: {galaxy, name, mag:(a,b), re:(a,b), n:(a,b)}.
     """
-    def purify_components(components):
-        if 'Fourier' in components:
-            components.remove('Fourier')
-        if 'Companion' in components:
-            components.remove('Companion')
-        if components == set(['Disk']):
-            components.add('SingleSersic') # disk only -> single sersic
-            components.remove('Disk')
     pairs = []
     cells_a = columns[0]['cells']
     cells_b = columns[1]['cells']
@@ -1060,13 +1074,10 @@ def _collect_stats_pairs(columns, galaxy_ids):
             continue
         # match on the analysis-report component set (consistent vocabulary),
         # not on raw parsed names which differ between file formats
-        sa = set(c.strip() for c in ca.get('components', '').split(',')
-                 if c.strip())
-        purify_components(sa)
-
-        sb = set(c.strip() for c in cb.get('components', '').split(',')
-                 if c.strip())
-        purify_components(sb)
+        sa = _purify_component_set(
+            c.strip() for c in ca.get('components', '').split(',') if c.strip())
+        sb = _purify_component_set(
+            c.strip() for c in cb.get('components', '').split(',') if c.strip())
 
         if not sa or sa != sb:
             continue
@@ -2146,11 +2157,13 @@ def admin_login():
     return render_template('admin_login.html')
 
 
-@app.route('/admin/sources')
-@login_required
-def admin_sources():
-    if not session.get('is_admin'):
-        return redirect(url_for('admin_login'))
+def _admin_sources_context():
+    """Build the shared context for the /admin/sources page.
+
+    Used by both the GET handler and the label-set import error path so an
+    import error can re-render the page directly (preserving the user's
+    typed JSON in the form) instead of redirecting and losing the input.
+    """
     db = get_db()
     source_list = db.execute(
         'SELECT s.label, s.container_path, s.parent_dir, s.description, s.created_at, '
@@ -2182,10 +2195,27 @@ def admin_sources():
                     })
         available[pname] = {'path': ppath, 'dirs': dirs}
 
-    return render_template('admin_sources.html',
-                           source_list=source_list,
-                           available=available,
-                           parent_dirs=parent_dirs)
+    label_set_list = db.execute(
+        'SELECT id, name, description, galaxy_count, created_at '
+        'FROM label_sets ORDER BY id'
+    ).fetchall()
+
+    return dict(source_list=source_list,
+                available=available,
+                parent_dirs=parent_dirs,
+                label_set_list=label_set_list)
+
+
+@app.route('/admin/sources')
+@login_required
+def admin_sources():
+    if not session.get('is_admin'):
+        return redirect(url_for('admin_login'))
+    ctx = _admin_sources_context()
+    ctx['labelset_error'] = request.args.get('labelset_error', '')
+    ctx['pending_json_text'] = ''
+    ctx['pending_description'] = ''
+    return render_template('admin_sources.html', **ctx)
 
 
 @app.route('/admin/sources/add', methods=['POST'])
@@ -2299,6 +2329,207 @@ def rescan():
     for source in db.execute('SELECT label, container_path FROM sources').fetchall():
         scan_galaxies(source['label'], source['container_path'], db)
     return redirect(url_for('admin_sources'))
+
+
+# --- Fitting-scoring label set management (拟合评分 标签集) ---
+
+@app.route('/admin/labelsets/add', methods=['POST'])
+@login_required
+def admin_labelset_add():
+    """Import a label set from a pasted JSON string.
+
+    Reads ``json_text`` (raw JSON) + optional ``description``. The JSON must
+    carry a ``dataset`` name and a ``galaxies`` list of {galaxy_id, components}.
+    A ``dataset`` name that already exists is REJECTED (not overwritten) — the
+    user must delete the existing set first. On any error the page is re-
+    rendered directly so the pasted JSON stays in the textarea.
+    """
+    if not session.get('is_admin'):
+        abort(403)
+    json_text = request.form.get('json_text', '').strip()
+    description = request.form.get('description', '').strip()
+
+    def fail(message):
+        ctx = _admin_sources_context()
+        ctx['labelset_error'] = message
+        # preserve the user's input across the error render
+        ctx['pending_json_text'] = json_text
+        ctx['pending_description'] = description
+        return render_template('admin_sources.html', **ctx)
+
+    if not json_text:
+        return fail('请粘贴标签集 JSON 内容。')
+    try:
+        data = json.loads(json_text)
+    except json.JSONDecodeError as e:
+        return fail('解析 JSON 失败: %s' % e)
+
+    name = (data.get('dataset') or '').strip()
+    galaxies = data.get('galaxies')
+    if not name:
+        return fail('JSON 缺少 dataset 字段。')
+    if not isinstance(galaxies, list):
+        return fail('JSON 的 galaxies 字段必须是列表。')
+
+    db = get_db()
+    existing = db.execute('SELECT id FROM label_sets WHERE name=?', (name,)).fetchone()
+    if existing:
+        return fail('dataset「%s」已存在，请先删除同名标签集或修改 JSON 里的 dataset。' % name)
+
+    cur = db.execute(
+        'INSERT INTO label_sets (name, description) VALUES (?, ?)',
+        (name, description))
+    lid = cur.lastrowid
+
+    count = 0
+    for g in galaxies:
+        if not isinstance(g, dict):
+            continue
+        gid = str(g.get('galaxy_id', '')).strip()
+        comps = g.get('components', [])
+        if not gid or not isinstance(comps, list):
+            continue
+        db.execute(
+            'INSERT OR REPLACE INTO label_galaxies (label_set_id, galaxy_id, components_json) '
+            'VALUES (?, ?, ?)',
+            (lid, gid, json.dumps(comps)))
+        count += 1
+
+    db.execute('UPDATE label_sets SET galaxy_count=? WHERE id=?', (count, lid))
+    db.commit()
+    return redirect(url_for('admin_sources'))
+
+
+@app.route('/admin/labelsets/<int:lid>/remove', methods=['POST'])
+@login_required
+def admin_labelset_remove(lid):
+    if not session.get('is_admin'):
+        abort(403)
+    db = get_db()
+    ls = db.execute('SELECT id FROM label_sets WHERE id=?', (lid,)).fetchone()
+    if not ls:
+        abort(404)
+    db.execute('DELETE FROM label_galaxies WHERE label_set_id=?', (lid,))
+    db.execute('DELETE FROM label_sets WHERE id=?', (lid,))
+    db.commit()
+    return redirect(url_for('admin_sources'))
+
+
+@app.route('/admin/labelsets/<int:lid>/update', methods=['POST'])
+@login_required
+def admin_labelset_update(lid):
+    if not session.get('is_admin'):
+        abort(403)
+    data = request.get_json(force=True)
+    description = data.get('description', '').strip()
+    db = get_db()
+    db.execute('UPDATE label_sets SET description=? WHERE id=?', (description, lid))
+    db.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/admin/labelsets/<int:lid>/view')
+@login_required
+def admin_labelset_view(lid):
+    """Return a label set as a formatted JSON string (one galaxy per line).
+
+    Response: {name, count, text} where ``text`` is valid JSON with the
+    ``galaxies`` array laid out so each galaxy_id + components sits on its
+    own line, for easy on-screen reading.
+    """
+    if not session.get('is_admin'):
+        abort(403)
+    db = get_db()
+    ls = db.execute('SELECT name FROM label_sets WHERE id=?', (lid,)).fetchone()
+    if not ls:
+        abort(404)
+    rows = db.execute(
+        'SELECT galaxy_id, components_json FROM label_galaxies '
+        'WHERE label_set_id=? ORDER BY id', (lid,)).fetchall()
+
+    galaxy_lines = []
+    for r in rows:
+        try:
+            comps = json.loads(r['components_json']) if r['components_json'] else []
+        except (ValueError, TypeError):
+            comps = []
+        galaxy_lines.append(
+            '    {"galaxy_id": %s, "components": %s}' % (
+                json.dumps(r['galaxy_id'], ensure_ascii=False),
+                json.dumps(comps, ensure_ascii=False)))
+    text = '{\n  "dataset": %s,\n  "galaxies": [\n%s\n  ]\n}' % (
+        json.dumps(ls['name'], ensure_ascii=False),
+        ',\n'.join(galaxy_lines))
+    return jsonify({'name': ls['name'], 'count': len(rows), 'text': text})
+
+
+# --- Fitting scoring (拟合评分) ---
+
+@app.route('/score/<int:labelset_id>/<source>')
+@login_required
+def score_page(labelset_id, source):
+    """Score a data source's best-fit components against a label set.
+
+    Iterates ALL galaxies fitted under ``source``: each is bucketed into
+    correct / wrong (when a label exists for that galaxy_id) or missing-label
+    (no label -> shown separately, excluded from the accuracy denominator).
+    Component comparison reuses ``_purify_component_set`` so the scoring
+    vocabulary matches the compare-page statistics exactly.
+    """
+    sources = _get_sources_from_db()
+    if source not in sources:
+        abort(404)
+    db = get_db()
+    ls = db.execute('SELECT * FROM label_sets WHERE id=?', (labelset_id,)).fetchone()
+    if not ls:
+        abort(404)
+
+    # Build galaxy_id -> purified label-component set
+    label_rows = db.execute(
+        'SELECT galaxy_id, components_json FROM label_galaxies WHERE label_set_id=?',
+        (labelset_id,)).fetchall()
+    label_index = {}
+    for r in label_rows:
+        try:
+            comps = json.loads(r['components_json']) if r['components_json'] else []
+        except (ValueError, TypeError):
+            comps = []
+        label_index[r['galaxy_id']] = _purify_component_set(comps)
+
+    sample_rows = db.execute(
+        'SELECT id, galaxy_id, source, fitting_type, best_turn, best_components '
+        'FROM samples WHERE source=? ORDER BY galaxy_id', (source,)).fetchall()
+
+    correct, wrong, missing_label = [], [], []
+    for r in sample_rows:
+        _bt, comps = get_best_turn_meta(r, db)
+        fitted = _purify_component_set(comps)
+        gid = r['galaxy_id']
+        if gid not in label_index:
+            missing_label.append({'galaxy_id': gid, 'fitted': sorted(fitted)})
+            continue
+        expected = label_index[gid]
+        entry = {
+            'galaxy_id': gid,
+            'fitted': sorted(fitted),
+            'expected': sorted(expected),
+        }
+        if fitted == expected:
+            correct.append(entry)
+        else:
+            wrong.append(entry)
+
+    denom = len(correct) + len(wrong)
+    accuracy = (len(correct) / denom) if denom else 0.0
+
+    return render_template('score.html',
+                           labelset=ls, source=source,
+                           correct=correct, wrong=wrong,
+                           missing_label=missing_label,
+                           accuracy=accuracy,
+                           total_evaluated=denom,
+                           total_source=len(sample_rows),
+                           current_source=source)
 
 
 # --- App lifecycle ---

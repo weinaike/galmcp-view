@@ -19,6 +19,7 @@
             <a href="/voting/">拟合投票</a>
             <a href="/statistics/{{ current_source or '' }}">投票统计</a>
             <a href="#" onclick="openCompareModal(event); return false;">拟合对比</a>
+            <a href="#" onclick="openScoreModal(event); return false;">拟合评分</a>
             <a href="/kb/review">KB 入库</a>
             <a href="/kb/manage">KB 管理</a>
             <a href="/admin/sources">数据源管理</a>
@@ -66,6 +67,55 @@
                 <div class="form-actions">
                     <button type="button" class="btn btn-primary"
                             onclick="submitCompare()">开始对比</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    {# --- 拟合评分 modal (1 label set + 1 source picker) --- #}
+    {% if sources %}
+    <div class="modal-overlay" id="score-modal" onclick="closeScoreModal(event)">
+        <div class="modal-content" onclick="event.stopPropagation()" style="max-width:560px">
+            <div class="modal-header">
+                <h3>拟合评分 — 选择标签集与数据源</h3>
+                <button type="button" class="modal-close" onclick="closeScoreModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="meta">选择 1 个标签集（标准答案）和 1 个数据源（拟合结果）进行评分。</p>
+                <div style="display:flex; gap:24px; margin:12px 0;">
+                    <div style="flex:1;">
+                        <div class="meta" style="margin-bottom:6px;"><b>标签集</b></div>
+                        <div id="score-labelset-list" style="display:flex;flex-direction:column">
+                            {% for ls in label_sets %}
+                            <label class="radio-label" style="margin-bottom:6px">
+                                <input type="radio" name="score-labelset" value="{{ ls.id }}">
+                                {{ ls.name }}{% if ls.description %} <span class="meta">— {{ ls.description }}</span>{% endif %}
+                            </label>
+                            {% else %}
+                            <span class="meta" style="color: var(--text-muted,#888);">
+                                暂无标签集，请先到
+                                <a href="/admin/sources">数据源管理</a> 导入。
+                            </span>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    <div style="flex:1;">
+                        <div class="meta" style="margin-bottom:6px;"><b>数据源</b></div>
+                        <div id="score-source-list" style="display:flex;flex-direction:column">
+                            {% for label in sources %}
+                            <label class="radio-label" style="margin-bottom:6px">
+                                <input type="radio" name="score-source" value="{{ label }}"
+                                       {% if label == current_source %}checked data-default="1"{% endif %}>
+                                {{ label }}{% if label == current_source %} <span class="meta">(当前)</span>{% endif %}
+                            </label>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+                <div id="score-warning" style="display:none;color:var(--red, #e06c75);margin:8px 0"></div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-primary"
+                            onclick="submitScore()">开始评分</button>
                 </div>
             </div>
         </div>

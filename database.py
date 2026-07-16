@@ -125,6 +125,29 @@ def init_db(app):
                 updated_at TEXT DEFAULT (datetime('now')),
                 UNIQUE(source, galaxy_id, timestamp_dir)
             );
+
+            -- Fitting-scoring ground-truth label sets (拟合评分). One label set
+            -- holds the expected component vocabulary per galaxy_id, imported
+            -- from a pasted JSON string. Compared against a data source's
+            -- best_turn components to produce an accuracy score.
+            CREATE TABLE IF NOT EXISTS label_sets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                description TEXT NOT NULL DEFAULT '',
+                galaxy_count INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS label_galaxies (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                label_set_id INTEGER NOT NULL REFERENCES label_sets(id),
+                galaxy_id TEXT NOT NULL,
+                components_json TEXT NOT NULL DEFAULT '[]',
+                UNIQUE(label_set_id, galaxy_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_label_galaxies_set
+                ON label_galaxies(label_set_id);
         ''')
         db.commit()
 

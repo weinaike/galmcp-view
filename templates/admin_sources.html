@@ -86,7 +86,108 @@
         {% endif %}
     </div>
     {% endfor %}
+
+    <hr style="margin: 2.5rem 0; border: none; border-top: 1px solid var(--border-color, #333);">
+
+    <h3 style="margin-bottom: 1rem;">拟合评分 — 标签集管理</h3>
+
+    <table class="sample-table" style="margin-bottom: 2rem;">
+        <thead>
+            <tr>
+                <th>名称 (dataset)</th>
+                <th>详细描述</th>
+                <th>星系数</th>
+                <th>添加时间</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for ls in label_set_list %}
+            <tr data-id="{{ ls.id }}">
+                <td class="galaxy-id">{{ ls.name }}</td>
+                <td class="meta ls-desc-cell" data-id="{{ ls.id }}" style="cursor:text; min-width:120px;{% if not ls.description %}color:var(--text-muted,#888){% endif %}"
+                    onclick="editLabelsetDesc(this)" title="点击编辑">{{ ls.description or '-' }}</td>
+                <td>{{ ls.galaxy_count }}</td>
+                <td class="meta">{{ ls.created_at }}</td>
+                <td>
+                    <button type="button" class="btn btn-sm" onclick="viewLabelset({{ ls.id }})">查看</button>
+                    <form method="POST" action="/admin/labelsets/{{ ls.id }}/remove" class="inline-form" style="display:inline;"
+                          onsubmit="return confirm('确定删除标签集「{{ ls.name }}」？')">
+                        <button type="submit" class="btn btn-sm" style="color: var(--red, #e74c3c);">删除</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+            {% if not label_set_list %}
+            <tr>
+                <td colspan="5" style="text-align:center; color: var(--text-muted, #888); padding: 2rem;">
+                    暂无标签集，请在下方粘贴 JSON 内容导入
+                </td>
+            </tr>
+            {% endif %}
+        </tbody>
+    </table>
+
+    <h3 style="margin-bottom: 1rem;">导入标签集</h3>
+    <div style="margin-bottom: 1.5rem; padding: 1rem; border: 1px solid var(--border-color, #333); border-radius: 6px;">
+        <p class="meta" style="margin-bottom: 0.8rem;">
+            JSON 格式：<code>{"dataset": "jwst_20260610", "galaxies": [{"galaxy_id": "28", "components": ["Disk", "Bulge"]}]}</code>
+        </p>
+        <form method="POST" action="/admin/labelsets/add" style="display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap;">
+            <textarea name="json_text" required placeholder='粘贴标签集 JSON，例如 {"dataset": "...", "galaxies": [...]}'
+                      class="input-username" style="min-width: 360px; flex: 1; min-height: 120px; font-family: monospace; resize: vertical;">{{ pending_json_text }}</textarea>
+            <div style="display:flex; flex-direction:column; gap:10px; width: 280px;">
+                <input type="text" name="description" placeholder="详细描述 (可选)"
+                       class="input-username" value="{{ pending_description }}">
+                <button type="submit" class="btn btn-primary">解析并添加</button>
+            </div>
+        </form>
+    </div>
 </div>
+
+{# --- 标签集查看 modal --- #}
+<div class="modal-overlay" id="labelset-view-modal" onclick="closeLabelviewModel(event)">
+    <div class="modal-content" onclick="event.stopPropagation()" style="max-width:720px">
+        <div class="modal-header">
+            <h3 id="labelset-view-title">标签集</h3>
+            <button type="button" class="modal-close" onclick="closeLabelviewModel()">&times;</button>
+        </div>
+        <div class="modal-body" style="overflow:auto;">
+            <pre id="labelset-view-pre" style="margin:0; padding:12px; background: var(--bg, #0d1117);
+border:1px solid var(--border-color,#30363d); border-radius:6px; font-size:0.85em; white-space:pre-wrap; word-break:break-word;"></pre>
+        </div>
+    </div>
+</div>
+
+{# --- 标签集导入错误 modal (page-load triggered when labelset_error set) --- #}
+<div class="modal-overlay" id="labelset-error-modal" onclick="closeLabelsetError(event)">
+    <div class="modal-content" onclick="event.stopPropagation()" style="max-width:460px">
+        <div class="modal-header">
+            <h3>标签集导入失败</h3>
+            <button type="button" class="modal-close" onclick="closeLabelsetError()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p id="labelset-error-msg" style="color: var(--red, #e06c75); margin:0; line-height:1.6;"></p>
+        </div>
+        <div class="form-actions">
+            <button type="button" class="btn btn-primary" onclick="closeLabelsetError()">确认</button>
+        </div>
+    </div>
+</div>
+{% if labelset_error %}
+<script>
+// Pop the error modal on load. The pasted JSON is already preserved in the
+// textarea (pending_json_text), so after dismissing the user can edit the
+// dataset field inline and resubmit.
+(function () {
+    var msg = {{ labelset_error|tojson }};
+    var el = document.getElementById('labelset-error-msg');
+    var modal = document.getElementById('labelset-error-modal');
+    if (el) el.textContent = msg;
+    if (modal) modal.classList.add('active');
+})();
+</script>
+{% endif %}
 
 <script>
 (function() {
@@ -185,5 +286,87 @@ function editDesc(td) {
         }
     });
 }
+
+// Inline edit label-set description
+function editLabelsetDesc(td) {
+    if (td.querySelector('input')) return;
+    const id = td.dataset.id;
+    const current = td.textContent.trim() === '-' ? '' : td.textContent.trim();
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = current;
+    input.className = 'input-username';
+    input.style.cssText = 'width:100%;box-sizing:border-box;font-size:0.85em;';
+    td.textContent = '';
+    td.appendChild(input);
+    input.focus();
+
+    function save() {
+        const val = input.value.trim();
+        fetch('/admin/labelsets/' + id + '/update', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({description: val})
+        }).then(r => {
+            if (r.ok) {
+                td.textContent = val || '-';
+                td.style.color = val ? '' : 'var(--text-muted,#888)';
+            } else {
+                td.textContent = current || '-';
+                td.style.color = current ? '' : 'var(--text-muted,#888)';
+            }
+        });
+    }
+
+    input.addEventListener('blur', save);
+    input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); save(); }
+        if (e.key === 'Escape') {
+            td.textContent = current || '-';
+            td.style.color = current ? '' : 'var(--text-muted,#888)';
+        }
+    });
+}
+
+// View label-set content as formatted JSON
+function viewLabelset(id) {
+    const modal = document.getElementById('labelset-view-modal');
+    const title = document.getElementById('labelset-view-title');
+    const pre = document.getElementById('labelset-view-pre');
+    if (!modal || !pre) return;
+    pre.textContent = '加载中…';
+    title.textContent = '标签集';
+    modal.classList.add('active');
+    fetch('/admin/labelsets/' + id + '/view', {cache: 'no-store'})
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(); })
+        .then(function (d) {
+            title.textContent = '标签集：' + (d.name || '') + ' （' + (d.count || 0) + ' 个星系）';
+            pre.textContent = d.text || '';
+        })
+        .catch(function () { pre.textContent = '加载失败，请重试。'; });
+}
+
+function closeLabelviewModel(e) {
+    const modal = document.getElementById('labelset-view-modal');
+    if (!modal) return;
+    if (e && e.target !== modal && !e.target.classList.contains('modal-close')) return;
+    modal.classList.remove('active');
+}
+
+function closeLabelsetError(e) {
+    const modal = document.getElementById('labelset-error-modal');
+    if (!modal) return;
+    if (e && e.target !== modal && !e.target.classList.contains('modal-close')) return;
+    modal.classList.remove('active');
+}
+
+document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+        const v = document.getElementById('labelset-view-modal');
+        if (v && v.classList.contains('active')) closeLabelviewModel();
+        const err = document.getElementById('labelset-error-modal');
+        if (err && err.classList.contains('active')) closeLabelsetError();
+    }
+});
 </script>
 {% endblock %}
