@@ -2544,4 +2544,4 @@ if __name__ == '__main__':
         for source in db.execute('SELECT label, container_path FROM sources').fetchall():
             scan_galaxies(source['label'], source['container_path'], db)
         init_analysis_data(app)
-    app.run(debug=True, host='0.0.0.0', port=35092)
+    app.run(debug=True, host='0.0.0.0', port=35091)
