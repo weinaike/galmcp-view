@@ -346,18 +346,19 @@ def _scan_single_galaxy(source_label, galaxy_dir, base_path, db):
         # Detect SED round
         is_sed = ts_dir.endswith('_sed') or '_sed_' in ts_dir
 
-        # Find comparison PNG
+        # Find comparison PNG. Match by suffix so we accept outputs from
+        # different GALFITS pipelines (galfit_comparison.png, imgblock_comparison.png, ...).
         if fitting_type == 'multi-band':
             png_files = glob.glob(os.path.join(round_path, 'all_bands_comparison.png'))
         else:
-            png_files = glob.glob(os.path.join(round_path, '*galfit_comparison.png'))
+            png_files = glob.glob(os.path.join(round_path, '*comparison.png'))
         png_path = png_files[0] if png_files else None
 
-        # Find and parse summary file
+        # Find and parse summary file (galfit_summary.md, imgblock_summary.md, ...).
         if fitting_type == 'multi-band':
             summary_files = glob.glob(os.path.join(round_path, '*.gssummary'))
         else:
-            summary_files = glob.glob(os.path.join(round_path, '*galfit_summary.md'))
+            summary_files = glob.glob(os.path.join(round_path, '*summary.md'))
 
         chi_squared_nu = None
         bic = None
