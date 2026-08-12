@@ -247,10 +247,10 @@
 
     // Auto-start for first-time users
     document.addEventListener('DOMContentLoaded', function() {
-        if (!sessionStorage.getItem('tour_done') && document.querySelector('.tour-start-btn')) {
+        if (!localStorage.getItem('tour_done') && document.querySelector('.tour-start-btn')) {
             var steps = getSteps();
             if (steps.length > 0) {
-                setTimeout(function() { startTour(); sessionStorage.setItem('tour_done', '1'); }, 800);
+                setTimeout(function() { startTour(); localStorage.setItem('tour_done', '1'); }, 800);
             }
         }
     });
