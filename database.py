@@ -148,6 +148,19 @@ def init_db(app):
 
             CREATE INDEX IF NOT EXISTS idx_label_galaxies_set
                 ON label_galaxies(label_set_id);
+
+            -- Course placement survey responses. Public form (no login), so the
+            -- respondent identity is an optional name; the per-result link uses an
+            -- unguessable token. answers_json holds the raw answers (single = str,
+            -- multi = list); tier is the derived placement key (survey.TIERS).
+            CREATE TABLE IF NOT EXISTS survey_responses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                token TEXT NOT NULL UNIQUE,
+                name TEXT NOT NULL DEFAULT '',
+                answers_json TEXT NOT NULL,
+                tier TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now'))
+            );
         ''')
         db.commit()
 

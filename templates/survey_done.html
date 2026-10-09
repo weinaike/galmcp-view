@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}提交成功{% endblock %}
+{% block nav %}{% endblock %}
+
+{% block head %}
+<style>
+  .done-wrap { max-width: 560px; margin: 64px auto; text-align: center; padding: 0 16px; }
+  .done-card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 38px 28px;
+  }
+  .done-card .check { font-size: 2.6rem; color: var(--green); margin-bottom: 8px; }
+  .done-card h2 { margin-bottom: 10px; }
+  .done-card p { color: var(--text-muted); }
+  .done-actions { margin-top: 22px; }
+  .group-qr { margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--border); }
+  .group-qr img { width: 220px; max-width: 64%; height: auto; border-radius: var(--radius); border: 1px solid var(--border); }
+  .group-qr .qr-title { font-weight: 600; margin-top: 12px; color: var(--accent); }
+  .group-qr p { margin-top: 6px; }
+  .share-row { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); }
+  .share-msg { color: var(--text-muted); margin-bottom: 12px; }
+  .share-btns { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  .fwd-text {
+    width: 100%; margin-top: 12px; padding: 9px 12px; background: var(--bg-dark);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    color: var(--text); font-size: 0.9rem; resize: none; display: none;
+    font-family: inherit; text-align: left;
+  }
+  .share-tip { font-size: 0.88rem; margin-top: 8px; min-height: 1em; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="done-wrap">
+  <div class="done-card">
+    <div class="check">✓</div>
+    <h2>提交成功，感谢！</h2>
+    <p>你的答卷已记录。课程开发会充分考虑你的的情况来调整课程节奏。</p>
+    <div class="group-qr">
+      <img src="{{ url_for('static', filename='group.png') }}" alt="课程交流群二维码">
+      <div class="qr-title">扫码加入课程交流群</div>
+      <p>欢迎群里反馈需求，第一时间收到课程开发进度</p>
+    </div>
+    <div class="share-row">
+      <div class="share-msg">也欢迎转发给同事，一起填一下 👇</div>
+      <div class="share-btns">
+        <button type="button" class="btn btn-sm" id="copy-fwd">复制转发信息</button>
+        <button type="button" class="btn btn-sm btn-primary" id="share-fwd">一键转发</button>
+      </div>
+      <textarea readonly class="fwd-text" id="fwd-text"></textarea>
+      <div class="share-tip" id="share-tip"></div>
+    </div>
+    <div class="done-actions"><a class="btn btn-sm" href="/survey">再填一次</a></div>
+  </div>
+</div>
+<script>
+(function () {
+  var url = window.location.origin + '/survey';
+  var shareText = '【AI/Agent应用课程开发调研】\n计划开发针对一线科研人员的AI/Agent应用普及课，填写问卷，让我们了解你的需求：\n' + url;
+  var tip = document.getElementById('share-tip');
+  var box = document.getElementById('fwd-text');
+  if (box) box.value = shareText;
+  function showTip(msg, ok) {
+    tip.textContent = msg;
+    tip.style.color = ok ? 'var(--green)' : 'var(--orange)';
+  }
+  function revealText() {
+    if (box) { box.style.display = 'block'; box.focus(); box.select(); }
+  }
+    function legacyCopy(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text; ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed'; ta.style.top = '0'; ta.style.left = '0'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    return ok;
+  }
+  function copyText() {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(shareText)
+        .then(function () { showTip('已复制，去粘贴转发吧 ✓', true); })
+        .catch(function () {
+          if (legacyCopy(shareText)) showTip('已复制，去粘贴转发吧 ✓', true);
+          else { revealText(); showTip('一键复制没成功，可直接选中下方文字复制', false); }
+        });
+    }
+    if (legacyCopy(shareText)) showTip('已复制，去粘贴转发吧 ✓', true);
+    else { revealText(); showTip('可直接选中下方文字复制', false); }
+  }
+  var copyBtn = document.getElementById('copy-fwd');
+  if (copyBtn) copyBtn.addEventListener('click', copyText);
+  var shareBtn = document.getElementById('share-fwd');
+  if (shareBtn) shareBtn.addEventListener('click', function () {
+    if (navigator.share) {
+      navigator.share({ title: 'AI/Agent应用课程开发调研', text: shareText, url: url })
+        .catch(function () {});
+    } else {
+      copyText();
+    }
+  });
+})();
+</script>
+{% endblock %}

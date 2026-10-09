@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}摸底问卷结果 - 星系拟合评价系统{% endblock %}
+
+{% block head %}
+<style>
+  .bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .bar-label { width: 240px; color: var(--text); }
+  .bar-track { flex: 1; background: var(--bg-dark); border-radius: 6px; height: 18px; overflow: hidden; }
+  .bar-fill { height: 100%; background: var(--c, var(--accent)); }
+  .bar-count { width: 48px; text-align: right; color: var(--text-muted); }
+  .qblock { margin-bottom: 24px; }
+  .qblock h4 { margin: 0 0 8px; font-size: 1rem; }
+  .resps td { vertical-align: top; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+  <div class="header-bar">
+    <h2>摸底问卷结果</h2>
+    <div class="header-actions">
+      <span class="meta">共 {{ total }} 份（感兴趣 {{ interested_total }} / 其他 {{ not_interested }}）</span>
+    </div>
+  </div>
+
+  {% set cmap = {'green': 'var(--green)', 'accent': 'var(--accent)', 'orange': 'var(--orange)'} %}
+
+  <h3>分层分布 <span class="meta" style="font-weight:400">（仅感兴趣 {{ interested_total }} 人）</span></h3>
+  {% if interested_total %}
+    {% for key, info in tiers %}
+      {% set n = tier_counts.get(key, 0) %}
+      {% set pct = (n / interested_total * 100) | round %}
+      <div class="bar-row" style="--c: {{ cmap[info.color] }}">
+        <span class="bar-label">{{ info.label }}</span>
+        <span class="bar-track"><span class="bar-fill" style="width: {{ pct }}%"></span></span>
+        <span class="bar-count">{{ n }}</span>
+      </div>
+    {% endfor %}
+  {% else %}
+    <p class="meta">暂无感兴趣的答卷。把 <a href="/survey">/survey</a> 链接发给学员即可开始收集。</p>
+  {% endif %}
+
+  {% if interested_total %}
+  <h3 style="margin-top: 2rem;">逐题分布</h3>
+  {% for qs in question_stats %}
+  <div class="qblock">
+    <h4>{{ qs.id|upper }}. {{ qs.prompt }} <span class="meta">({{ qs.respondents }} 人作答)</span></h4>
+    {% if qs.type == 'text' %}
+    {% if qs.text_count %}
+    <div class="meta" style="margin-bottom:6px">{{ qs.text_count }} 人填写：</div>
+    <ul style="margin:0; padding-left:20px;">
+      {% for t in qs.text_answers %}<li>{{ t }}</li>{% endfor %}
+    </ul>
+    {% else %}
+    <span class="meta">暂无人填写。</span>
+    {% endif %}
+    {% elif qs.type == 'single' %}
+    <table class="stats-table">
+      <thead><tr><th>选项</th><th>人数</th><th>占比</th></tr></thead>
+      <tbody>
+      {% for o in qs.options %}
+        {% set c = qs.counts.get(o.key, 0) %}
+        <tr>
+          <td>{{ o.label }}</td>
+          <td>{{ c }}</td>
+          <td>{{ ((c / qs.respondents * 100) | round | int) if qs.respondents else 0 }}%</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <table class="stats-table">
+      <thead><tr><th>选项</th><th>被勾选次数</th></tr></thead>
+      <tbody>
+      {% for o in qs.options %}
+        <tr><td>{{ o.label }}</td><td>{{ qs.counts.get(o.key, 0) }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% if qs.other_count %}
+    <div class="meta" style="margin-top:6px">其他（{{ qs.other_count }} 人）：{% for t in qs.other_texts %}<br>• {{ t }}{% endfor %}</div>
+    {% endif %}
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  {% if total %}
+  <h3 style="margin-top: 2rem;">各人答卷</h3>
+  <table class="comp-table resps">
+    <thead><tr><th>姓名</th><th>分层</th><th>提交时间</th><th>详情</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+    <tr>
+      <td>{{ r.name or '匿名' }}</td>
+      <td>{% if r.tier == 'not_interested' %}不感兴趣 / 已掌握{% else %}{{ tier_info[r.tier].label if r.tier in tier_info else r.tier }}{% endif %}</td>
+      <td>{{ r.created_at }}</td>
+      <td><a href="/survey/r/{{ r.token }}">查看</a></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+{% endblock %}

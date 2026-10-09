@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}答卷详情{% endblock %}
+
+{% block head %}
+<style>
+  .result-wrap { max-width: 760px; margin: 0 auto; padding: 24px 16px 60px; }
+  .tier-badge {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-left: 5px solid var(--c, var(--accent));
+    border-radius: var(--radius); padding: 20px 22px; margin-bottom: 14px;
+  }
+  .tier-badge .tag { display: inline-block; font-size: 0.8rem; color: var(--text-muted); letter-spacing: .04em; }
+  .tier-badge h2 { margin: 6px 0 8px; color: var(--c, var(--accent)); }
+  .tier-badge .blurb { color: var(--text); }
+  .section {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px 20px; margin-bottom: 14px;
+  }
+  .section h3 { margin-bottom: 10px; }
+  .section ul { margin: 0; padding-left: 20px; }
+  .section li { margin-bottom: 7px; }
+  .summary-table { width: 100%; border-collapse: collapse; }
+  .summary-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .summary-table tr:last-child td { border-bottom: none; }
+  .summary-table td:first-child { color: var(--text-muted); width: 46%; }
+  .meta-line { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px; }
+</style>
+{% endblock %}
+
+{% block content %}
+{% set cmap = {'green': 'var(--green)', 'accent': 'var(--accent)', 'orange': 'var(--orange)'} %}
+<div class="result-wrap" style="--c: {{ cmap[result.tier_color] if result else 'var(--text-muted)' }}">
+  {% if not_interested %}
+  <div class="tier-badge">
+    <span class="tag">兴趣</span>
+    <h2 style="color: var(--text-muted)">不太感兴趣 / 已掌握</h2>
+    <div class="blurb">该受访者选择“不太感兴趣”或“已掌握”，未填写问卷主体。</div>
+  </div>
+  <p class="meta-line">{% if row.name %}答卷人：{{ row.name }} · {% endif %}提交于 {{ row.created_at }}</p>
+  {% else %}
+  <div class="tier-badge">
+    <span class="tag">分层</span>
+    <h2>{{ result.tier_label }}</h2>
+    <div class="blurb">{{ result.tier_blurb }}</div>
+  </div>
+
+  <p class="meta-line">
+    {% if row.name %}答卷人：{{ row.name }} · {% endif %}提交于 {{ row.created_at }}
+  </p>
+
+  <div class="section">
+    <h3>学习建议</h3>
+    <ul>
+      {% for s in result.suggestions %}<li>{{ s }}</li>{% endfor %}
+    </ul>
+  </div>
+
+  <div class="section">
+    <h3>答卷内容</h3>
+    <table class="summary-table">
+      {% for a in answer_labels %}
+      <tr><td>{{ a.prompt }}</td><td>{{ a.text }}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endif %}
+
+  <div><a class="btn btn-sm" href="/survey/results">返回统计</a></div>
+</div>
+{% endblock %}

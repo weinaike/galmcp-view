@@ -4,6 +4,7 @@ import os
 import glob
 import json
 import re
+import secrets
 import statistics as stats_mod
 from collections import OrderedDict
 from functools import wraps
@@ -13,6 +14,7 @@ from flask import (Flask, render_template, request, redirect, url_for,
 from config import Config
 from database import get_db, close_db, init_db
 from scanner import scan_galaxies, find_analysis_report_path, parse_best_turn
+from survey import SURVEY, SECTIONS, score as score_survey, TIERS, TIER_ORDER
 
 
 # --- S4G table7 loader ---
@@ -2530,6 +2532,192 @@ def score_page(labelset_id, source):
                            total_evaluated=denom,
                            total_source=len(sample_rows),
                            current_source=source)
+
+
+# --- Course placement survey (public; independent of the galaxy auth) ---
+#
+# A two-layer self-assessment (Layer 1: code ability & tools → tech axis;
+# Layer 2: depth of AI use → llm axis) plus an "extra" context block.
+# `/survey` is open (no login) so students can fill it from a shared link; each
+# submission is scored (survey.score) into a tier, stored with an unguessable
+# token, and shown back via PRG. The admin-only `/survey/results` aggregates the
+# class so the instructor can adjust the syllabus to the cohort.
+
+def _survey_option_map():
+    """{qid: {key: label}} for rendering a respondent's answers or stats."""
+    return {q['id']: {o['key']: o['label'] for o in q.get('options', [])} for q in SURVEY}
+
+
+def _survey_answer_labels(answers):
+    """Flatten one respondent's answers into readable {id, prompt, text} rows."""
+    omap = _survey_option_map()
+    out = []
+    for q in SURVEY:
+        val = answers.get(q['id'])
+        if q['type'] == 'text':
+            text = val.strip() if isinstance(val, str) and val.strip() else '—'
+        elif q['type'] == 'single':
+            text = omap[q['id']].get(val, '—')
+        else:
+            val = val or []
+            parts = [omap[q['id']].get(k, k) for k in val]
+            if q.get('other_text'):
+                ot = answers.get(q['id'] + '_other', '')
+                if ot:
+                    parts.append('其他：' + ot)
+            text = '；'.join(parts) if parts else '—'
+        out.append({'id': q['id'], 'prompt': q['prompt'], 'text': text})
+    return out
+
+
+def _survey_question_stats(rows):
+    """Per-question option counts across all respondents.
+
+    For single questions each respondent contributes one pick; for multi
+    questions ``respondents`` is how many answered at all (each can pick
+    several options, so option counts need not sum to respondents). The Q4
+    "不知道" option (key ``e``) is just another option here — surfacing it as
+    its own count lets the instructor separate honest "don't know" from wrong
+    guesses.
+    """
+    stats = []
+    for q in SURVEY:
+        counts = {o['key']: 0 for o in q.get('options', [])}
+        respondents = 0
+        other_texts = []
+        text_answers = []
+        for r in rows:
+            try:
+                ans = json.loads(r['answers_json']) if r['answers_json'] else {}
+            except (ValueError, TypeError):
+                ans = {}
+            val = ans.get(q['id'])
+            ot = ''
+            if q.get('other_text'):
+                ot = (ans.get(q['id'] + '_other', '') or '').strip()
+            if q['type'] == 'single':
+                if val:
+                    counts[val] = counts.get(val, 0) + 1
+                    respondents += 1
+            elif q['type'] == 'text':
+                tval = val.strip() if isinstance(val, str) else ''
+                if tval:
+                    respondents += 1
+                    text_answers.append(tval)
+            else:
+                val = val or []
+                if val or ot:
+                    respondents += 1
+                for k in val:
+                    counts[k] = counts.get(k, 0) + 1
+                if ot:
+                    other_texts.append(ot)
+        stat = {
+            'id': q['id'], 'prompt': q['prompt'], 'hint': q.get('hint', ''),
+            'type': q['type'], 'options': q.get('options', []),
+            'counts': counts, 'respondents': respondents,
+        }
+        if q.get('other_text'):
+            stat['other_count'] = len(other_texts)
+            stat['other_texts'] = other_texts
+        if q['type'] == 'text':
+            stat['text_count'] = len(text_answers)
+            stat['text_answers'] = text_answers
+        stats.append(stat)
+    return stats
+
+
+@app.route('/survey')
+def survey_form():
+    return render_template('survey.html', survey=SURVEY, sections=SECTIONS)
+
+
+@app.route('/survey/done')
+def survey_done():
+    """Thank-you page shown after a student submits — no result/tier is revealed
+    to the student; only the admin aggregate (/survey/results) shows outcomes."""
+    return render_template('survey_done.html')
+
+
+@app.route('/survey/submit', methods=['POST'])
+def survey_submit():
+    interested = request.form.get('interested', '')
+    name = (request.form.get('name', '') or '').strip()[:50]
+    token = secrets.token_urlsafe(8)
+
+    # interest gate: "not interested" records the opt-out with no questionnaire
+    # body (no Q1–Q7, no tier). Everything else is scored as before.
+    if interested == 'no':
+        answers = {'interested': 'no'}
+        tier = 'not_interested'
+    else:
+        # assemble answers: single -> str, multi -> list (Flask getlist)
+        answers = {}
+        for q in SURVEY:
+            if q['type'] == 'single':
+                answers[q['id']] = request.form.get(q['id'], '')
+            elif q['type'] == 'text':
+                answers[q['id']] = (request.form.get(q['id'], '') or '').strip()[:q.get('maxlength', 500)]
+            else:
+                answers[q['id']] = request.form.getlist(q['id'])
+            if q.get('other_text'):
+                answers[q['id'] + '_other'] = (request.form.get(q['id'] + '_other', '') or '').strip()[:200]
+        answers['interested'] = 'yes'
+        tier = score_survey(answers)['tier']
+
+    db = get_db()
+    db.execute(
+        'INSERT INTO survey_responses (token, name, answers_json, tier) '
+        'VALUES (?, ?, ?, ?)',
+        (token, name, json.dumps(answers, ensure_ascii=False), tier))
+    db.commit()
+    return redirect(url_for('survey_done'))
+
+
+@app.route('/survey/r/<token>')
+@admin_required
+def survey_result(token):
+    db = get_db()
+    row = db.execute(
+        'SELECT * FROM survey_responses WHERE token=?', (token,)).fetchone()
+    if not row:
+        abort(404)
+    try:
+        answers = json.loads(row['answers_json']) if row['answers_json'] else {}
+    except (ValueError, TypeError):
+        answers = {}
+    not_interested = (row['tier'] == 'not_interested')
+    result = None if not_interested else score_survey(answers)   # re-derive display info from stored answers
+    return render_template('survey_result.html', row=row, result=result,
+                           not_interested=not_interested,
+                           answer_labels=[] if not_interested else _survey_answer_labels(answers))
+
+
+@app.route('/survey/results')
+@admin_required
+def survey_results():
+    db = get_db()
+    rows = db.execute(
+        'SELECT * FROM survey_responses ORDER BY datetime(created_at) DESC'
+    ).fetchall()
+
+    # interest gate: "not_interested" rows opted out of the questionnaire body,
+    # so the tier distribution + per-question stats are computed over the rest.
+    interested_rows = [r for r in rows if r['tier'] != 'not_interested']
+    not_interested = len(rows) - len(interested_rows)
+
+    tier_counts = {key: 0 for key in TIER_ORDER}
+    for r in interested_rows:
+        tier_counts[r['tier']] = tier_counts.get(r['tier'], 0) + 1
+
+    return render_template('survey_results.html', rows=rows,
+                           total=len(rows),
+                           interested_total=len(interested_rows),
+                           not_interested=not_interested,
+                           tier_counts=tier_counts,
+                           tiers=[(k, TIERS[k]) for k in TIER_ORDER],
+                           tier_info=TIERS,
+                           question_stats=_survey_question_stats(interested_rows))
 
 
 # --- App lifecycle ---

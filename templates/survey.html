@@ -1,0 +1,302 @@
+{% extends "base.html" %}
+{% block title %}AI/Agent应用课程开发调研{% endblock %}
+{% block nav %}{% endblock %}
+
+{% block head %}
+<style>
+  .survey-wrap { max-width: 760px; margin: 0 auto; padding: 24px 16px 60px; }
+  .survey-intro {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px 20px; margin-bottom: 20px;
+  }
+  .survey-intro h2 { margin-bottom: 8px; }
+  .intro-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .intro-head h2 { margin-bottom: 0; }
+  .share-group { display: inline-flex; align-items: center; gap: 10px; }
+  .share-tip { font-size: 0.85rem; min-height: 1em; color: var(--green); }
+  .course-about { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .course-about h3 { font-size: 1rem; margin-bottom: 6px; }
+  .course-about p { margin-bottom: 4px; }
+  .course-outline { margin: 6px 0 10px; padding-left: 22px; }
+  .course-outline li { margin-bottom: 4px; }
+  .interest-gate { border-left: 3px solid var(--accent); }
+  #survey-body.gated { display: none; }
+  .gate-hint { color: var(--text-muted); font-size: 0.88rem; margin-top: 8px; }
+  .layer-header { margin: 22px 0 10px; }
+  .layer-header .layer-title { font-size: 1.05rem; font-weight: 700; color: var(--accent); }
+  .layer-header .layer-sub { color: var(--text-muted); font-size: 0.86rem; margin-top: 2px; }
+  .layer-header--sep { border-top: 1px solid var(--border); padding-top: 18px; }
+  .body-intro { margin-bottom: 16px; }
+  .body-intro h3 { margin-bottom: 6px; }
+  .name-field { margin: 18px 0 6px; }
+  .name-field label { display: block; font-weight: 600; margin-bottom: 6px; }
+  .survey-wrap input[type=text] {
+    width: 100%; padding: 9px 12px; background: var(--bg-dark);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    color: var(--text); font-size: 0.95rem;
+  }
+  .survey-wrap input[type=text]:focus { outline: none; border-color: var(--accent); }
+  .survey-wrap textarea {
+    width: 100%; padding: 9px 12px; background: var(--bg-dark);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    color: var(--text); font-size: 0.95rem; font-family: inherit; resize: vertical;
+  }
+  .survey-wrap textarea:focus { outline: none; border-color: var(--accent); }
+  .q-card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px 20px; margin-bottom: 14px;
+    transition: border-color .15s;
+  }
+  .q-card.q-missing { border-color: var(--red); }
+  .name-field.q-missing input { border-color: var(--red); }
+  .q-num { display: inline-block; min-width: 24px; color: var(--accent); font-weight: 700; }
+  .q-prompt { font-weight: 600; font-size: 1.02rem; }
+  .q-required { color: var(--red); margin-left: 4px; }
+  .q-hint { color: var(--text-muted); font-size: 0.88rem; margin: 6px 0 4px; }
+  .opt {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 7px 10px; border-radius: 6px; cursor: pointer;
+  }
+  .opt:hover { background: var(--bg-card-hover); }
+  .opt input { margin-top: 3px; accent-color: var(--accent); }
+  .q-other { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 0 10px; }
+  .q-other input[type=text] { flex: 1; padding: 7px 10px; }
+  .survey-actions { margin-top: 18px; display: flex; gap: 14px; align-items: center; }
+  .survey-err { color: var(--red); font-size: 0.9rem; display: none; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="survey-wrap">
+  <div class="survey-intro">
+    <div class="intro-head">
+      <h2>AI/Agent应用课程开发调研</h2>
+      <span class="share-group">
+        <span class="share-tip" id="share-tip"></span>
+        <button type="button" class="btn btn-sm" id="share-survey">分享给同事</button>
+      </span>
+    </div>
+
+    <div class="course-about">
+      <h3>关于这门课</h3>
+      <p class="meta"><b>背景</b>：AI 的能力快速进化，AI使用方式也在变化，科研一线老师和同学们也期望熟练使用AI，因而计划开发这门AI应该普及课。</p>
+      <p class="meta"><b>目标</b>：让 AI/Agent 帮我们干活——课程讲的是<b>如何使用</b> AI/Agent，<b>不讲</b>模型训练和微调。</p>
+      <p class="meta">课程内容大致包括：</p>
+      <ul class="course-outline">
+        <li>LLM 基础知识</li>
+        <li>LLM API / SDK 使用方法</li>
+        <li>工具的设计和封装方法</li>
+        <li>SKILL 的设计和封装方法</li>
+        <li>Agent 上下文管理方法</li>
+        <li>Agent 工作模式及实战应用（ReAct、Plan-and-Execute、Self-Reflection、Multi-Agent）</li>
+        <li>知识库的构建与应用</li>
+      </ul>
+    </div>
+  </div>
+
+  <form method="POST" action="/survey/submit" id="survey-form" novalidate>
+    <div class="q-card interest-gate" data-qid="interested" data-type="single" data-required="1">
+      <div class="q-prompt">你对这门课程感兴趣吗？<span class="q-required">*</span></div>
+      <div class="q-options">
+        <label class="opt"><input type="radio" name="interested" value="yes"> 感兴趣，我想学</label>
+        <label class="opt"><input type="radio" name="interested" value="no"> 不太感兴趣 或者 我已经掌握</label>
+      </div>
+      <div class="gate-hint" id="gate-hint">勾选「感兴趣」即可展开下方问卷。</div>
+    </div>
+
+    <div id="survey-body" class="gated">
+    <div class="body-intro">
+      <h3>课程摸底问卷</h3>
+      <p class="meta">约 2–3 分钟，全勾选。<b>本次问卷用于针对性地制作这门课程</b>——你的作答会决定各部分的深浅与节奏。这不是考试，如实作答即可。</p>
+    </div>
+    <div class="name-field">
+      <label for="name">姓名 / 昵称 <span class="q-required">*</span></label>
+      <input type="text" id="name" name="name" maxlength="50" placeholder="姓名 / 昵称">
+    </div>
+
+    {% set ns = namespace(prev='') %}
+    {% for q in survey %}
+      {% if q.section != ns.prev %}
+        {% set ns.prev = q.section %}
+        <div class="layer-header{% if not loop.first %} layer-header--sep{% endif %}">
+          <div class="layer-title">{{ sections[q.section].title }}</div>
+          <div class="layer-sub">{{ sections[q.section].subtitle }}</div>
+        </div>
+      {% endif %}
+      {% set is_required = q.get('required', q.type != 'text') %}
+      <div class="q-card" data-qid="{{ q.id }}" data-type="{{ q.type }}"
+           data-required="{% if is_required %}1{% endif %}"
+           {% if q.exclusive_none %}data-none-key="{{ q.exclusive_none }}"{% endif %}>
+        <div class="q-prompt">
+          <span class="q-num">{{ loop.index }}.</span>{{ q.prompt }}{% if is_required %}<span class="q-required">*</span>{% endif %}
+        </div>
+        {% if q.hint %}<div class="q-hint">{{ q.hint }}</div>{% endif %}
+        {% if q.type == 'text' %}
+        <textarea name="{{ q.id }}" rows="3" maxlength="{{ q.get('maxlength', 500) }}"
+                  placeholder="{{ q.get('placeholder', '') }}"></textarea>
+        {% else %}
+        <div class="q-options">
+          {% for o in q.options %}
+            {% if q.type == 'single' %}
+              <label class="opt"><input type="radio" name="{{ q.id }}" value="{{ o.key }}"> {{ o.label }}</label>
+            {% else %}
+              <label class="opt"><input type="checkbox" name="{{ q.id }}" value="{{ o.key }}"> {{ o.label }}</label>
+            {% endif %}
+          {% endfor %}
+        </div>
+        {% endif %}
+        {% if q.other_text %}
+        <div class="q-other">
+          <span class="meta">其他：</span>
+          <input type="text" class="other-input" name="{{ q.id }}_other" maxlength="200" placeholder="补充你想学 / 想做的目的">
+        </div>
+        {% endif %}
+      </div>
+    {% endfor %}
+    </div>
+
+    <div class="survey-actions">
+      <button type="submit" class="btn btn-primary" id="survey-submit">提交</button>
+      <span class="survey-err" id="survey-err">请回答所有带 * 的必答题（可选题可跳过）。</span>
+    </div>
+  </form>
+</div>
+
+<script>
+(function () {
+  var form = document.getElementById('survey-form');
+  var btn = document.getElementById('survey-submit');
+  var err = document.getElementById('survey-err');
+
+  // exclusive "none of these" handling for multi questions (Q2 / Q5):
+  // checking it clears the rest, and checking anything else clears it.
+  document.querySelectorAll('.q-card[data-none-key]').forEach(function (card) {
+    var noneKey = card.getAttribute('data-none-key');
+    var boxes = card.querySelectorAll('input[type=checkbox]');
+    boxes.forEach(function (bx) {
+      bx.addEventListener('change', function () {
+        if (bx.value === noneKey && bx.checked) {
+          boxes.forEach(function (o) { if (o !== bx) o.checked = false; });
+        } else if (bx.value !== noneKey && bx.checked) {
+          var noneBx = card.querySelector('input[value="' + noneKey + '"]');
+          if (noneBx) noneBx.checked = false;
+        }
+      });
+    });
+  });
+
+  // interest gate: hide the questionnaire body when "not interested", so that
+  // respondent just submits the opt-out without filling Q1–Q7.
+  var body = document.getElementById('survey-body');
+  var gateHint = document.getElementById('gate-hint');
+  document.querySelectorAll('input[name="interested"]').forEach(function (r) {
+    r.addEventListener('change', function () {
+      if (this.value === 'no') {
+        body.classList.add('gated');
+        gateHint.textContent = '好的，不用填问卷，直接点“提交”即可。';
+      } else {
+        body.classList.remove('gated');
+        gateHint.textContent = '';
+      }
+    });
+  });
+
+  form.addEventListener('submit', function (e) {
+    var ok = true, firstBad = null;
+    var picked = document.querySelector('input[name="interested"]:checked');
+    var interestedYes = picked && picked.value === 'yes';
+    // name is required too, but only when the respondent is interested
+    var nameField = document.querySelector('.name-field');
+    var nameInput = document.getElementById('name');
+    if (interestedYes && !(nameInput && nameInput.value.trim())) {
+      nameField.classList.add('q-missing');
+      ok = false;
+      if (!firstBad) firstBad = nameField;
+    } else {
+      nameField.classList.remove('q-missing');
+    }
+    document.querySelectorAll('.q-card').forEach(function (card) {
+      // the questionnaire body is only required when the respondent is interested
+      if (!interestedYes && !card.classList.contains('interest-gate')) {
+        card.classList.remove('q-missing');
+        return;
+      }
+      if (card.getAttribute('data-required') !== '1') {
+        card.classList.remove('q-missing'); return;
+      }
+      var type = card.getAttribute('data-type');
+      var answered;
+      if (type === 'single') {
+        answered = card.querySelector('input[type=radio]:checked');
+      } else if (type === 'text') {
+        var ta = card.querySelector('textarea');
+        answered = ta && ta.value.trim();
+      } else {
+        var cb = card.querySelector('input[type=checkbox]:checked');
+        var oi = card.querySelector('input.other-input');
+        answered = cb || (oi && oi.value.trim());
+      }
+      if (!answered) {
+        card.classList.add('q-missing');
+        ok = false;
+        if (!firstBad) firstBad = card;
+      } else {
+        card.classList.remove('q-missing');
+      }
+    });
+    if (!ok) {
+      e.preventDefault();
+      err.style.display = 'inline';
+      if (firstBad) firstBad.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = '提交中…';
+  });
+})();
+
+  // top-of-page share button: native share sheet, else copy forwarding text
+  (function () {
+    var shareUrl = window.location.origin + '/survey';
+    var shareText = '【AI/Agent应用课程开发调研】\n计划开发针对一线科研人员的AI/Agent应用普及课，填写问卷，让我们了解你的需求：\n' + shareUrl;
+    var tip = document.getElementById('share-tip');
+    var sbtn = document.getElementById('share-survey');
+    if (!sbtn) return;
+    function showTip(msg, ok) {
+      if (!tip) return;
+      tip.textContent = msg;
+      tip.style.color = ok ? 'var(--green)' : 'var(--orange)';
+    }
+    function legacyCopy(text) {
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed'; ta.style.top = '0'; ta.style.left = '0'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.focus(); ta.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      document.body.removeChild(ta);
+      return ok;
+    }
+    function copyText() {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(shareText)
+          .then(function () { showTip('已复制，去粘贴转发吧 ✓', true); })
+          .catch(function () {
+            if (legacyCopy(shareText)) showTip('已复制，去粘贴转发吧 ✓', true);
+            else showTip('复制失败，请手动复制链接', false);
+          });
+      }
+      if (legacyCopy(shareText)) showTip('已复制，去粘贴转发吧 ✓', true);
+      else showTip('复制失败，请手动复制链接', false);
+    }
+    sbtn.addEventListener('click', function () {
+      if (navigator.share) {
+        navigator.share({ title: 'AI/Agent应用课程开发调研', text: shareText, url: shareUrl })
+          .catch(function () {});
+      } else {
+        copyText();
+      }
+    });
+  })();
+</script>
+{% endblock %}

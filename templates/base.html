@@ -9,6 +9,7 @@
     {% block head %}{% endblock %}
 </head>
 <body class="{% block bodyclass %}{% endblock %}">
+    {% block nav %}
     <nav>
         <div class="nav-brand">
             <a href="/voting/">星系拟合评价系统</a>
@@ -23,6 +24,7 @@
             <a href="/kb/review">KB 入库</a>
             <a href="/kb/manage">KB 管理</a>
             <a href="/admin/sources">数据源管理</a>
+            {% if session.get('is_admin') %}<a href="/survey/results">问卷结果</a>{% endif %}
             {% if sources|length > 1 %}
             <select class="nav-source-select" onchange="(function(val){var p=window.location.pathname;if(p.indexOf('/statistics')===0)window.location.href='/statistics/'+val;else window.location.href='/voting/'+val+'/';})(this.value)">
                 {% for label in sources %}
@@ -38,6 +40,7 @@
             {% endif %}
         </div>
     </nav>
+    {% endblock %}
     <main>
         {% block content %}{% endblock %}
     </main>
