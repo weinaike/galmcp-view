@@ -6,6 +6,7 @@ import json
 import re
 import secrets
 import statistics as stats_mod
+import threading
 from collections import OrderedDict
 from functools import wraps
 import markdown
@@ -2727,9 +2728,21 @@ app.teardown_appcontext(close_db)
 
 if __name__ == '__main__':
     init_db(app)
-    with app.app_context():
-        db = get_db()
-        for source in db.execute('SELECT label, container_path FROM sources').fetchall():
-            scan_galaxies(source['label'], source['container_path'], db)
-        init_analysis_data(app)
-    app.run(debug=True, host='0.0.0.0', port=35091)
+
+    # Scan sources in a background thread so app.run() binds the port
+    # immediately — with 60+ sources on slow disks the full scan takes
+    # minutes, during which the app used to be unreachable. scan_galaxies
+    # commits per galaxy, so its write transactions stay short and don't
+    # lock out concurrent requests.
+    def _background_scan():
+        with app.app_context():
+            db = get_db()
+            for source in db.execute('SELECT label, container_path FROM sources').fetchall():
+                scan_galaxies(source['label'], source['container_path'], db)
+            init_analysis_data(app)
+
+    threading.Thread(target=_background_scan, daemon=True).start()
+    # use_reloader=False: the reloader re-executes this script in a child
+    # process, which would start a second scan thread racing on the same
+    # SQLite file. Template hot-reload (debug=True) is unaffected.
+    app.run(debug=True, use_reloader=False, host='0.0.0.0', port=35091)
