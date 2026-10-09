@@ -5,11 +5,11 @@ IMAGE_NAME="galaxy-voting"
 CONTAINER_NAME="galaxy-voting"
 HOST_PORT=35091
 CONTAINER_PORT=35091
-ANALYSIS_IMAGE_DIR="/home/wnk/code/s4g-p4-galfit/gadotti-0513/"
+ANALYSIS_IMAGE_DIR="/media/data/galfit_run_history/gadotti-0513/"
 CONTAINER_ANALYSIS_DIR="/data/analysis_images"
 VIEW_DIR="/home/wnk/code/view"
 DB_DIR="${VIEW_DIR}/data"
-GALFIT_PARENT1="/home/wnk/code/s4g-p4-galfit"
+GALFIT_PARENT1="/media/data/galfit_run_history"
 GALFIT_PARENT2="/media/data/galfits"
 
 # visualRAG KB service linkage. Default to the host KB service over the docker
