@@ -96,10 +96,10 @@
                             <td>{{ p.x }}</td>
                             <td>{{ p.y }}</td>
                             <td>{{ p.mag }}</td>
-                            <td>{{ p.re }}</td>
+                            <td>{% if p.re %}{{ p.re }}{% else %}—{% endif %}</td>
                             <td>{% if p.n %}{{ p.n }}{% else %}—{% endif %}</td>
-                            <td>{{ p.ba }}</td>
-                            <td>{{ p.pa }}</td>
+                            <td>{% if p.ba %}{{ p.ba }}{% else %}—{% endif %}</td>
+                            <td>{% if p.pa %}{{ p.pa }}{% else %}—{% endif %}</td>
                             <td>{{ col.label }}</td>
                         </tr>
                         {% endfor %}
