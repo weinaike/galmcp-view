@@ -63,7 +63,7 @@
                         {% if cell.chi_squared_nu is not none %}χ²/ν={{ '%.3f'|format(cell.chi_squared_nu) }}{% endif %}
                         {% if cell.bic is not none %} · BIC={{ '%.1f'|format(cell.bic) }}{% endif %}
                         {% if cell.components %} · 成分: {{ cell.components }}{% endif %}
-                        · <a href="/sample/{{ cell.source }}/{{ cell.galaxy_id }}">详情页 →</a>
+                        · <a href="/sample/{{ cell.source }}/{{ cell.galaxy_id }}" target="_blank" rel="noopener">详情页 →</a>
                     </div>
                     {% else %}
                     <div class="cell-empty">—</div>
@@ -96,10 +96,10 @@
                             <td>{{ p.x }}</td>
                             <td>{{ p.y }}</td>
                             <td>{{ p.mag }}</td>
-                            <td>{{ p.re }}</td>
+                            <td>{% if p.re %}{{ p.re }}{% else %}—{% endif %}</td>
                             <td>{% if p.n %}{{ p.n }}{% else %}—{% endif %}</td>
-                            <td>{{ p.ba }}</td>
-                            <td>{{ p.pa }}</td>
+                            <td>{% if p.ba %}{{ p.ba }}{% else %}—{% endif %}</td>
+                            <td>{% if p.pa %}{{ p.pa }}{% else %}—{% endif %}</td>
                             <td>{{ col.label }}</td>
                         </tr>
                         {% endfor %}

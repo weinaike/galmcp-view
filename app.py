@@ -905,7 +905,7 @@ def _safe_float(s):
 
 
 _FITLOG_COMP_RE = re.compile(
-    r'^\s*(sersic|expdisk)\s*:\s*'
+    r'^\s*(sersic|expdisk|devauc|gaussian|king|psf)\s*:\s*'
     r'\(\s*([^,)]+),\s*([^)]+)\)\s*(.*)$'
 )
 
@@ -913,8 +913,10 @@ _FITLOG_COMP_RE = re.compile(
 def _parse_fitlog_params(text):
     """Parse single-band fit.log text into a list of component dicts.
 
-    Only ``sersic`` / ``expdisk`` lines are extracted.  ``expdisk`` has no n
-    (always 1), so its ``n`` is set to ``None``.  Values may be wrapped in
+    ``sersic`` / ``expdisk`` / ``devauc`` / ``gaussian`` / ``king`` lines are
+    full 7-param components.  ``psf`` lines (point sources such as AGN cores)
+    only carry mag, so re/n/ba/pa are left empty.  ``expdisk`` has no n
+    (always 1), so its ``n`` is set to ``1``.  Values may be wrapped in
     ``{}``, ``[]``, or ``*`` — these are stripped.  Result is sorted by Re
     (descending).
     """
@@ -927,7 +929,12 @@ def _parse_fitlog_params(text):
         x = _clean_num(m.group(2))
         y = _clean_num(m.group(3))
         rest = [_clean_num(v) for v in m.group(4).split()]
-        if comp_type == 'expdisk':
+        if comp_type == 'psf':          # psf: mag only (point source / AGN)
+            if not rest:
+                continue
+            mag = rest[0]
+            re_val = n = ba = pa = ''
+        elif comp_type == 'expdisk':
             if len(rest) < 4:          # mag, re, ba, pa
                 continue
             mag, re_val, ba, pa = rest[:4]
